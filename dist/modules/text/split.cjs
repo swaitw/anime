@@ -1,6 +1,6 @@
 /**
  * Anime.js - text - CJS
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -118,6 +118,7 @@ const filterLineElements = ($el, lineIndex, bin) => {
  */
 const generateTemplate = (type, params = {}) => {
   let template = ``;
+  if (!params) params = {};
   const classString = helpers.isStr(params.class) ? ` class="${params.class}"` : '';
   const cloneType = values.setValue(params.clone, false);
   const wrapType = values.setValue(params.wrap, false);

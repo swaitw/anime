@@ -1,6 +1,7 @@
 import {
   K,
   noop,
+  noopModifier,
   maxFps,
   compositionTypes,
   win,
@@ -22,10 +23,13 @@ import {
 /**
  * @typedef {Object} EditorGlobals
  * @property {boolean} showPanel
- * @property {boolean} synced
  * @property {Function} addAnimation
+ * @property {Function} addSet
  * @property {Function} addTimeline
  * @property {Function} addTimelineChild
+ * @property {Function} addTimelineLabel
+ * @property {Function} addTimelineCall
+ * @property {Function} addTimelineSync
  * @property {Function} resolveStagger
  * @property {Object|null} _head
  * @property {Object|null} _tail
@@ -48,7 +52,7 @@ export const defaults = {
   loopDelay: 0,
   ease: 'out(2)',
   composition: compositionTypes.replace,
-  modifier: v => v,
+  modifier: noopModifier,
   onBegin: noop,
   onBeforeUpdate: noop,
   onUpdate: noop,

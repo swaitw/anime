@@ -26,6 +26,7 @@ import './suites/utils.test.js';
 import './suites/values.test.js';
 import './suites/transforms.test.js';
 import './suites/colors.test.js';
+import './suites/threejs.test.js';
 import './suites/eases.test.js';
 import './suites/leaks.test.js';
 

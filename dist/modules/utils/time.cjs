@@ -1,6 +1,6 @@
 /**
  * Anime.js - utils - CJS
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -28,13 +28,14 @@ const sync = (callback = consts.noop) => {
 };
 
 /**
- * @param  {(...args: any[]) => Tickable | ((...args: any[]) => void) | void} constructor
- * @return {(...args: any[]) => Tickable | ((...args: any[]) => void)}
+ * @template {Tickable | ((...args: any[]) => void) | void} T
+ * @param  {(...args: any[]) => T} constructor
+ * @return {(...args: any[]) => T extends void ? () => void : T}
  */
 const keepTime = constructor => {
   /** @type {Tickable} */
   let tracked;
-  return (...args) => {
+  return /** @type {(...args: any[]) => T extends void ? () => void : T} */(/** @type {*} */((...args) => {
     let currentIteration, currentIterationProgress, reversed, alternate, startTime;
     if (tracked) {
       currentIteration = tracked.currentIteration;
@@ -52,7 +53,7 @@ const keepTime = constructor => {
       /** @type {Tickable} */(tracked)._startTime = startTime;
     }
     return cleanup || consts.noop;
-  }
+  }));
 };
 
 exports.keepTime = keepTime;

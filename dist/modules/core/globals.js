@@ -1,11 +1,11 @@
 /**
  * Anime.js - core - ESM
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
 
-import { isBrowser, win, noop, compositionTypes, K, maxFps, doc } from './consts.js';
+import { isBrowser, win, noop, noopModifier, compositionTypes, K, maxFps, doc } from './consts.js';
 
 /**
  * @import {
@@ -21,10 +21,13 @@ import { isBrowser, win, noop, compositionTypes, K, maxFps, doc } from './consts
 /**
  * @typedef {Object} EditorGlobals
  * @property {boolean} showPanel
- * @property {boolean} synced
  * @property {Function} addAnimation
+ * @property {Function} addSet
  * @property {Function} addTimeline
  * @property {Function} addTimelineChild
+ * @property {Function} addTimelineLabel
+ * @property {Function} addTimelineCall
+ * @property {Function} addTimelineSync
  * @property {Function} resolveStagger
  * @property {Object|null} _head
  * @property {Object|null} _tail
@@ -47,7 +50,7 @@ const defaults = {
   loopDelay: 0,
   ease: 'out(2)',
   composition: compositionTypes.replace,
-  modifier: v => v,
+  modifier: noopModifier,
   onBegin: noop,
   onBeforeUpdate: noop,
   onUpdate: noop,
@@ -77,7 +80,7 @@ const globals = {
   editor: null,
 };
 
-const globalVersions = { version: '4.4.1', engine: null };
+const globalVersions = { version: '4.5.0', engine: null };
 
 if (isBrowser) {
   if (!win.AnimeJS) win.AnimeJS = [];

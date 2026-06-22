@@ -5,7 +5,6 @@ export {}
 // Private types
 
 /**
- * @import { TweakRegister } from 'tweaks';
  * @import { ScrollObserver } from '../events/scroll.js';
  * @import { JSAnimation } from '../animation/animation.js';
  * @import { Animatable } from '../animatable/animatable.js';
@@ -56,6 +55,12 @@ export {}
 /** @typedef {Timer&JSAnimation&Timeline} CallbackArgument */
 /** @typedef {Animatable|Tickable|WAAPIAnimation|Draggable|ScrollObserver|TextSplitter|Scope|AutoLayout} Revertible */
 
+/**
+ * @typedef {Object} TweakRegister
+ * @property {String} type
+ * @property {*} defaultValue
+ */
+
 // Stagger types
 
 /**
@@ -75,11 +80,18 @@ export {}
  * @property {Number|'first'|'center'|'last'|'random'|Array.<Number>} [from]
  * @property {Boolean} [reversed]
  * @property {Array.<Number>|Boolean} [grid]
- * @property {('x'|'y')} [axis]
- * @property {String|((target: Target, i: Number, length: Number) => Number)} [use]
+ * @property {('x'|'y'|'z')} [axis]
+ * @property {String | { method(target: Target, i: Number, length: Number): Number }['method']} [use]
  * @property {Number} [total]
  * @property {EasingParam} [ease]
  * @property {TweenModifier} [modifier]
+ * @property {Number|[Number, Number]} [jitter] Additive uniform noise on the
+ *   computed stagger value. Number form gives flat `+/-jitter`; tuple form
+ *   ramps the magnitude `start -> end` across the from/axis/grid ordering
+ *   and respects `ease`.
+ * @property {Boolean|Number} [seed] Seed for jitter draws and `from: 'random'`
+ *   shuffling. `false` (default) uses Math.random. `true` seeds with `0`. A
+ *   number is used directly as the seed.
  */
 
 // Targets types
@@ -155,10 +167,7 @@ export {}
 
 /**
  * @template T
- * @callback Callback
- * @param {T} self - Returns itself
- * @param {PointerEvent} [e]
- * @return {*}
+ * @typedef {{ method(self: T): * }['method']} Callback
  */
 
 /**
@@ -202,12 +211,17 @@ export {}
 // Tween types
 
 /**
+ * @typedef {Number|String|TweenKeyValue|EasingParam|Array.<Number|String|TweenKeyValue>} FunctionValueReturn
+ */
+
+/**
+ * @template [T=FunctionValueReturn]
  * @callback FunctionValue
  * @param {Target} [target] - The animated target
  * @param {Number} [index] - The target index
  * @param {TargetsArray} [targets] - The array of all animated targets
  * @param {Tween|null} [prevTween] - The previous sibling tween for the same target and property
- * @return {Number|String|TweenObjectValue|EasingParam|Array.<Number|String|TweenObjectValue>}
+ * @return {T}
  */
 
 /**
@@ -224,7 +238,7 @@ export {}
  * @property {JSAnimation} parent
  * @property {String} property
  * @property {Target} target
- * @property {String|Number} _value
+ * @property {String|Number|Object} _value
  * @property {Function|null} _toFunc
  * @property {Function|null} _fromFunc
  * @property {EasingFunction} _ease
@@ -243,7 +257,11 @@ export {}
  * @property {Number} _startTime
  * @property {Number} _changeDuration
  * @property {Number} _absoluteStartTime
+ * @property {Number} _absoluteUpdateStartTime
+ * @property {Number} _absoluteEndTime
+ * @property {Number} _hasFromValue
  * @property {tweenTypes} _tweenType
+ * @property {((target: any, value: number, tween: Tween) => void) | null} _setter
  * @property {valueTypes} _valueType
  * @property {Number} _composition
  * @property {Number} _isOverlapped
@@ -264,8 +282,8 @@ export {}
  * @property {Number} n - Single number value
  * @property {String} u - Value unit
  * @property {String} o - Value operator
- * @property {Array.<Number>} d - Array of Numbers (in case of complex value type)
- * @property {Array.<String>} s - Strings (in case of complex value type)
+ * @property {Array.<Number>} d - Array of Numbers (complex / color value type)
+ * @property {Array.<String>} s - Strings (complex value type)
  */
 
 /** @typedef {{_head: null|Tween, _tail: null|Tween}} TweenPropertySiblings */
@@ -276,7 +294,7 @@ export {}
 // JSAnimation types
 
 /**
- * @typedef {Number|String|FunctionValue|EasingParam} TweenParamValue
+ * @typedef {Number|String|FunctionValue|EasingParam|TweakRegister} TweenParamValue
  */
 
 /**
@@ -469,7 +487,7 @@ export {}
  */
 
 /**
- * @typedef {Record<String, TweenParamValue | EasingParam | TweenModifier | TweenComposition | AnimatablePropertyParamsOptions> & AnimatablePropertyParamsOptions} AnimatableParams
+ * @typedef {Record<String, TweenParamValue | EasingParam | TweenModifier | TweenComposition | AnimatablePropertyParamsOptions | Callback<JSAnimation>> & AnimatablePropertyParamsOptions & TickableCallbacks<JSAnimation> & RenderableCallbacks<JSAnimation>} AnimatableParams
  */
 
 // Scope types
@@ -512,7 +530,7 @@ export {}
 /**
  * @callback ScopeMethod
  * @param {...*} args
- * @return {ScopeCleanupCallback|void}
+ * @return {*}
  */
 
 // Scroll types

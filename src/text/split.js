@@ -132,6 +132,7 @@ const filterLineElements = ($el, lineIndex, bin) => {
  */
 const generateTemplate = (type, params = {}) => {
   let template = ``;
+  if (!params) params = {};
   const classString = isStr(params.class) ? ` class="${params.class}"` : '';
   const cloneType = setValue(params.clone, false);
   const wrapType = setValue(params.wrap, false);

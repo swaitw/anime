@@ -9,7 +9,7 @@ syncTweaks('localStorage');
 const Override = registerType('Override', false);
 const overrideModes = { false: 0, true: 0, string: 0 };
 
-registerTypeGUI('Override', (prop, labelKey) => {
+registerTypeGUI('Override', (/** @type {any} */prop, labelKey) => {
   if (!prop.list) prop.list = { mode: 'false', text: '', src: undefined };
   const s = prop.list;
   if (s.src !== prop.value) {

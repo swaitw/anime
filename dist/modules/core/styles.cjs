@@ -1,6 +1,6 @@
 /**
  * Anime.js - core - CJS
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -10,6 +10,7 @@
 var consts = require('./consts.cjs');
 var helpers = require('./helpers.cjs');
 var transforms = require('./transforms.cjs');
+var values = require('./values.cjs');
 
 /**
  * @import {
@@ -76,7 +77,20 @@ const revertValues = (renderable, inlineStylesOnly = false) => {
       const tweenType = tween._tweenType;
       const originalInlinedValue = tween._inlineValue;
       const tweenHadNoInlineValue = helpers.isNil(originalInlinedValue) || originalInlinedValue === consts.emptyString;
-      if (tweenType === consts.tweenTypes.OBJECT) {
+      if (tween._setter) {
+        if (!inlineStylesOnly && !tweenHadNoInlineValue) {
+          // Re-seed the original value to the _number / _numbers props so the setter can write the original state instead of re-applying the current frame.
+          values.decomposeRawValue(originalInlinedValue, values.decomposedOriginalValue);
+          if (values.decomposedOriginalValue.d) {
+            const src = values.decomposedOriginalValue.d;
+            const dst = tween._numbers;
+            for (let i = 0, l = src.length; i < l; i++) dst[i] = src[i];
+          } else {
+            tween._number = values.decomposedOriginalValue.n;
+          }
+          tween._setter(tween.target, tween._number, tween);
+        }
+      } else if (tweenType === consts.tweenTypes.OBJECT) {
         if (!inlineStylesOnly && !tweenHadNoInlineValue) {
           tweenTarget[tweenProperty] = originalInlinedValue;
         }

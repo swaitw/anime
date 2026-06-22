@@ -1,6 +1,6 @@
 /**
  * Anime.js - events - ESM
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -214,12 +214,14 @@ class ScrollContainer {
 
   refreshScrollObservers() {
     forEachChildren(this, (/** @type {ScrollObserver} */child) => {
+      if (!child.ready) return;
       if (child._debug) {
         child.removeDebug();
       }
     });
     this.updateBounds();
     forEachChildren(this, (/** @type {ScrollObserver} */child) => {
+      if (!child.ready) return;
       child.refresh();
       child.onResize(child);
       if (child._debug) {

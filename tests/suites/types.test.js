@@ -1,4 +1,4 @@
-import { animate, createTimer, createTimeline, utils } from '../../dist/modules/index.js';
+import { animate, createTimer, createTimeline, utils, Timer, Timeline, JSAnimation } from '../../dist/modules/index.js';
 
 animate('.anime-css', {
   keyframes: {
@@ -35,7 +35,8 @@ const animation = animate('#target-id', {
   b: 'string',
   c0: (el) => el.dataset.index, // el should be of type target
   c1: (el, i) => el.dataset.index + i,
-  c2: (el, i, targets) => { targets.length - (el.dataset.index + i) }, // Should throw because not returing a valid value
+  // @ts-expect-error - returns void, not a valid tween value
+  c2: (el, i, targets) => { targets.length - (el.dataset.index + i) },
   d: {
     to: 100,
     duration: 10,
@@ -89,11 +90,12 @@ const tl = createTimeline({
     duration: 100
   }
 })
-.add('label', 10000)
+.label('label', 10000)
 .add('#target-id', {
   a: 100,
   b: 'string',
-  c: (el, i, targets) => { targets.length - (el.dataset.index + i) }, // Should throw
+  // @ts-expect-error - returns void, not a valid tween value
+  c: (el, i, targets) => { targets.length - (el.dataset.index + i) },
   d: {
     to: 100,
     duration: 10,
@@ -135,15 +137,15 @@ const tl = createTimeline({
   onLoop: self => console.log(self.currentTime),
   onComplete: self => console.log(self.currentTime),
 }, 10000)
-.add(self => {
+.call(self => {
   console.log(self.currentTime)
 }, 10000)
 
 
-/** @param {String} v */
+/** @param {JSAnimation} v */
 animation.onComplete = (v) => v;
 
-/** @param {Animation} v */
+/** @param {Timer} v */
 timer.onComplete = (v) => v;
 
 /** @param {Timeline} v */

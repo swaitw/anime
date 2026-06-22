@@ -1,6 +1,6 @@
 /**
  * Anime.js - UMD bundle
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -39,6 +39,12 @@
 /** @typedef {Timer&JSAnimation&Timeline} CallbackArgument */
 /** @typedef {Animatable|Tickable|WAAPIAnimation|Draggable|ScrollObserver|TextSplitter|Scope|AutoLayout} Revertible */
 
+/**
+ * @typedef {Object} TweakRegister
+ * @property {String} type
+ * @property {*} defaultValue
+ */
+
 // Stagger types
 
 /**
@@ -58,11 +64,18 @@
  * @property {Number|'first'|'center'|'last'|'random'|Array.<Number>} [from]
  * @property {Boolean} [reversed]
  * @property {Array.<Number>|Boolean} [grid]
- * @property {('x'|'y')} [axis]
- * @property {String|((target: Target, i: Number, length: Number) => Number)} [use]
+ * @property {('x'|'y'|'z')} [axis]
+ * @property {String | { method(target: Target, i: Number, length: Number): Number }['method']} [use]
  * @property {Number} [total]
  * @property {EasingParam} [ease]
  * @property {TweenModifier} [modifier]
+ * @property {Number|[Number, Number]} [jitter] Additive uniform noise on the
+ *   computed stagger value. Number form gives flat `+/-jitter`; tuple form
+ *   ramps the magnitude `start -> end` across the from/axis/grid ordering
+ *   and respects `ease`.
+ * @property {Boolean|Number} [seed] Seed for jitter draws and `from: 'random'`
+ *   shuffling. `false` (default) uses Math.random. `true` seeds with `0`. A
+ *   number is used directly as the seed.
  */
 
 // Targets types
@@ -138,10 +151,7 @@
 
 /**
  * @template T
- * @callback Callback
- * @param {T} self - Returns itself
- * @param {PointerEvent} [e]
- * @return {*}
+ * @typedef {{ method(self: T): * }['method']} Callback
  */
 
 /**
@@ -185,12 +195,17 @@
 // Tween types
 
 /**
+ * @typedef {Number|String|TweenKeyValue|EasingParam|Array.<Number|String|TweenKeyValue>} FunctionValueReturn
+ */
+
+/**
+ * @template [T=FunctionValueReturn]
  * @callback FunctionValue
  * @param {Target} [target] - The animated target
  * @param {Number} [index] - The target index
  * @param {TargetsArray} [targets] - The array of all animated targets
  * @param {Tween|null} [prevTween] - The previous sibling tween for the same target and property
- * @return {Number|String|TweenObjectValue|EasingParam|Array.<Number|String|TweenObjectValue>}
+ * @return {T}
  */
 
 /**
@@ -207,7 +222,7 @@
  * @property {JSAnimation} parent
  * @property {String} property
  * @property {Target} target
- * @property {String|Number} _value
+ * @property {String|Number|Object} _value
  * @property {Function|null} _toFunc
  * @property {Function|null} _fromFunc
  * @property {EasingFunction} _ease
@@ -226,7 +241,11 @@
  * @property {Number} _startTime
  * @property {Number} _changeDuration
  * @property {Number} _absoluteStartTime
+ * @property {Number} _absoluteUpdateStartTime
+ * @property {Number} _absoluteEndTime
+ * @property {Number} _hasFromValue
  * @property {tweenTypes} _tweenType
+ * @property {((target: any, value: number, tween: Tween) => void) | null} _setter
  * @property {valueTypes} _valueType
  * @property {Number} _composition
  * @property {Number} _isOverlapped
@@ -247,8 +266,8 @@
  * @property {Number} n - Single number value
  * @property {String} u - Value unit
  * @property {String} o - Value operator
- * @property {Array.<Number>} d - Array of Numbers (in case of complex value type)
- * @property {Array.<String>} s - Strings (in case of complex value type)
+ * @property {Array.<Number>} d - Array of Numbers (complex / color value type)
+ * @property {Array.<String>} s - Strings (complex value type)
  */
 
 /** @typedef {{_head: null|Tween, _tail: null|Tween}} TweenPropertySiblings */
@@ -259,7 +278,7 @@
 // JSAnimation types
 
 /**
- * @typedef {Number|String|FunctionValue|EasingParam} TweenParamValue
+ * @typedef {Number|String|FunctionValue|EasingParam|TweakRegister} TweenParamValue
  */
 
 /**
@@ -452,7 +471,7 @@
  */
 
 /**
- * @typedef {Record<String, TweenParamValue | EasingParam | TweenModifier | TweenComposition | AnimatablePropertyParamsOptions> & AnimatablePropertyParamsOptions} AnimatableParams
+ * @typedef {Record<String, TweenParamValue | EasingParam | TweenModifier | TweenComposition | AnimatablePropertyParamsOptions | Callback<JSAnimation>> & AnimatablePropertyParamsOptions & TickableCallbacks<JSAnimation> & RenderableCallbacks<JSAnimation>} AnimatableParams
  */
 
 // Scope types
@@ -495,7 +514,7 @@
 /**
  * @callback ScopeMethod
  * @param {...*} args
- * @return {ScopeCleanupCallback|void}
+ * @return {*}
  */
 
 // Scroll types
@@ -731,6 +750,11 @@
   const emptyString = '';
   const cssVarPrefix = 'var(';
 
+  // Arrays
+
+  // Shared sentinel for tween slots that don't hold array data. Never mutated, only read; COMPLEX and COLOR tweens always replace the slot before writing.
+  const emptyArray = [];
+
   const shortTransforms = /*#__PURE__*/ (() => {
     const map = new Map();
     map.set('x', 'translateX');
@@ -764,6 +788,13 @@
   /** @return {void} */
   const noop = () => {};
 
+  /**
+   * @template T
+   * @param  {T} v
+   * @return {T}
+   */
+  const noopModifier = v => v;
+
   // Regex
 
   const validRgbHslRgx = /\)\s*[-.\d]/;
@@ -785,10 +816,13 @@
   /**
    * @typedef {Object} EditorGlobals
    * @property {boolean} showPanel
-   * @property {boolean} synced
    * @property {Function} addAnimation
+   * @property {Function} addSet
    * @property {Function} addTimeline
    * @property {Function} addTimelineChild
+   * @property {Function} addTimelineLabel
+   * @property {Function} addTimelineCall
+   * @property {Function} addTimelineSync
    * @property {Function} resolveStagger
    * @property {Object|null} _head
    * @property {Object|null} _tail
@@ -811,7 +845,7 @@
     loopDelay: 0,
     ease: 'out(2)',
     composition: compositionTypes.replace,
-    modifier: v => v,
+    modifier: noopModifier,
     onBegin: noop,
     onBeforeUpdate: noop,
     onUpdate: noop,
@@ -841,7 +875,7 @@
     editor: null,
   };
 
-  const globalVersions = { version: '4.4.1', engine: null };
+  const globalVersions = { version: '4.5.0', engine: null };
 
   if (isBrowser) {
     if (!win.AnimeJS) win.AnimeJS = [];
@@ -988,7 +1022,7 @@
    * @param  {Number} factor - Interpolation factor in the range [0, 1]
    * @return {Number} The interpolated value
    */
-  const lerp$1 = (start, end, factor) => start + (end - start) * factor;
+  const lerp$1 = (start, end, factor) => factor === 1 ? end : factor === 0 ? start : start + (end - start) * factor;
 
   /**
    * Replaces infinity with maximum safe value
@@ -1237,6 +1271,61 @@
     return str;
   };
 
+  /**
+   * Anime.js adapter API. Each library or class group that wants to extend `animate()` and `utils.set()` calls `registerAdapter()` to create its own `Adapter`. The returned `Adapter` exposes `registerTargetAdapter(detect)` for per-class detection and `registerPropertyResolver(fn)` for global Color / Vector / pattern-based fallbacks.
+   *
+   *   import { registerAdapter } from 'animejs/adapters';
+   *
+   *   const myAdapter = registerAdapter();
+   *   const widget = myAdapter.registerTargetAdapter((t) => t instanceof MyWidget);
+   *   widget.registerProperty('value',
+   *     (t) => t.getValue(),
+   *     (target, value) => target.setValue(value),
+   *   );
+   *
+   * For scalar tweens, `value` is the interpolated number. For color and complex tweens it is `undefined`; read `tween._numbers` instead. `gate(target)` scopes the prop to a subset of matching targets.
+   *
+   * Resolution order: every Adapter's target adapters in registration order (first match wins) then every Adapter's property resolvers (first non-null wins) then engine direct property path.
+   */
+
+
+  const adapters = /** @type {Adapter[]} */([]);
+
+  /**
+   * Internal resolution. Tries every Adapter's target adapters first (in registration order, first match wins), then every Adapter's property resolvers.
+   *
+   * @param {any} target
+   * @param {string} name
+   * @return {TargetAdapterEntry | null}
+   */
+  function resolveAdapterEntry(target, name) {
+    if (!target) return null;
+    const al = adapters.length;
+    outer: for (let i = 0; i < al; i++) {
+      const a = adapters[i];
+      if (a.detect && !a.detect(target)) continue;
+      const tas = a.targetAdapters;
+      for (let j = 0, m = tas.length; j < m; j++) {
+        const ta = tas[j];
+        if (ta.detect(target)) {
+          const entry = ta.props[name];
+          if (entry && (!entry.gate || entry.gate(target))) return entry;
+          break outer;
+        }
+      }
+    }
+    for (let i = 0; i < al; i++) {
+      const a = adapters[i];
+      if (a.detect && !a.detect(target)) continue;
+      const rs = a.propertyResolvers;
+      for (let j = 0, m = rs.length; j < m; j++) {
+        const entry = rs[j](target, name);
+        if (entry) return entry;
+      }
+    }
+    return null;
+  }
+
   
 
   /**
@@ -1335,6 +1424,21 @@
   };
 
   /**
+   * Resolve against the target when it's a DOM element, otherwise fall back to :root so non-DOM targets like three.js meshes and custom adapters still pick up CSS variables defined on the document.
+   *
+   * @param  {String} value
+   * @param  {Target} target
+   * @return {String|Number}
+   */
+  const resolveCssVar = (value, target) => {
+    const match = value.match(cssVariableMatchRgx);
+    const el = target[isDomSymbol] ? target : document.documentElement;
+    let computed = getComputedStyle(/** @type {HTMLElement} */(el))?.getPropertyValue(match[1]);
+    if ((!computed || computed.trim() === emptyString) && match[2]) computed = match[2].trim();
+    return computed || 0;
+  };
+
+  /**
    * @param  {TweenPropValue} value
    * @param  {Target} target
    * @param  {Number} index
@@ -1344,30 +1448,26 @@
    * @return {any}
    */
   const getFunctionValue = (value, target, index, targets, store, prevTween) => {
-    let func;
     if (isFnc(value)) {
-      func = () => {
+      if (!store) {
         const computed = /** @type {Function} */(value)(target, index, targets, prevTween);
-        // Fallback to 0 if the function returns undefined / NaN / null / false / 0
+        // Fallback to 0 if the function returns undefined, NaN, null, false or 0
+        return !isNaN(+computed) ? +computed : computed || 0;
+      }
+      const func = () => {
+        const computed = /** @type {Function} */(value)(target, index, targets, prevTween);
         return !isNaN(+computed) ? +computed : computed || 0;
       };
-    } else if (isStr(value) && stringStartsWith(value, cssVarPrefix)) {
-      func = () => {
-        const match = value.match(cssVariableMatchRgx);
-        const cssVarName = match[1];
-        const fallbackValue = match[2];
-        let computed = getComputedStyle(/** @type {HTMLElement} */(target))?.getPropertyValue(cssVarName);
-        // Use fallback if CSS variable is not set or empty
-        if ((!computed || computed.trim() === emptyString) && fallbackValue) {
-          computed = fallbackValue.trim();
-        }
-        return computed || 0;
-      };
-    } else {
-      return value;
+      store.func = func;
+      return func();
     }
-    if (store) store.func = func;
-    return func();
+    if (isStr(value) && stringStartsWith(value, cssVarPrefix)) {
+      if (!store) return resolveCssVar(/** @type {String} */(value), target);
+      const func = () => resolveCssVar(/** @type {String} */(value), target);
+      store.func = func;
+      return func();
+    }
+    return value;
   };
 
   /**
@@ -1414,6 +1514,12 @@
    */
   const getOriginalAnimatableValue = (target, propName, tweenType, animationInlineStyles) => {
     const type = !isUnd(tweenType) ? tweenType : getTweenType(target, propName);
+    const adapterProp = resolveAdapterEntry(target, propName);
+    if (adapterProp) {
+      const value = adapterProp.get(target);
+      if (value && animationInlineStyles) animationInlineStyles[propName] = value;
+      return value == null ? 0 : value;
+    }
     if (type === tweenTypes.OBJECT) {
       const value = target[propName];
       if (value && animationInlineStyles) animationInlineStyles[propName] = value;
@@ -1455,7 +1561,7 @@
   };
 
   /**
-   * @param  {String|Number} rawValue
+   * @param  {String|Number|Object} rawValue
    * @param  {TweenDecomposedValue} targetObject
    * @return {TweenDecomposedValue}
    */
@@ -1473,39 +1579,38 @@
       // It's a number
       targetObject.n = num;
       return targetObject;
+    }
+    // let str = /** @type {String} */(rawValue).trim();
+    let str = /** @type {String} */(rawValue);
+    // Parsing operators (+=, -=, *=) manually is much faster than using regex here
+    if (str[1] === '=') {
+      targetObject.o = str[0];
+      str = str.slice(2);
+    }
+    // Skip exec regex if the value type is complex or color to avoid long regex backtracking
+    const unitMatch = str.includes(' ') ? false : unitsExecRgx.exec(str);
+    if (unitMatch) {
+      // Has a number and a unit
+      targetObject.t = valueTypes.UNIT;
+      targetObject.n = +unitMatch[1];
+      targetObject.u = unitMatch[2];
+      return targetObject;
+    } else if (targetObject.o) {
+      // Has an operator (+=, -=, *=)
+      targetObject.n = +str;
+      return targetObject;
+    } else if (isCol(str)) {
+      // Color string
+      targetObject.t = valueTypes.COLOR;
+      targetObject.d = convertColorStringValuesToRgbaArray(str);
+      return targetObject;
     } else {
-      // let str = /** @type {String} */(rawValue).trim();
-      let str = /** @type {String} */(rawValue);
-      // Parsing operators (+=, -=, *=) manually is much faster than using regex here
-      if (str[1] === '=') {
-        targetObject.o = str[0];
-        str = str.slice(2);
-      }
-      // Skip exec regex if the value type is complex or color to avoid long regex backtracking
-      const unitMatch = str.includes(' ') ? false : unitsExecRgx.exec(str);
-      if (unitMatch) {
-        // Has a number and a unit
-        targetObject.t = valueTypes.UNIT;
-        targetObject.n = +unitMatch[1];
-        targetObject.u = unitMatch[2];
-        return targetObject;
-      } else if (targetObject.o) {
-        // Has an operator (+=, -=, *=)
-        targetObject.n = +str;
-        return targetObject;
-      } else if (isCol(str)) {
-        // Is a color
-        targetObject.t = valueTypes.COLOR;
-        targetObject.d = convertColorStringValuesToRgbaArray(str);
-        return targetObject;
-      } else {
-        // Is a more complex string (generally svg coords, calc() or filters CSS values)
-        const matchedNumbers = str.match(digitWithExponentRgx);
-        targetObject.t = valueTypes.COMPLEX;
-        targetObject.d = matchedNumbers ? matchedNumbers.map(Number) : [];
-        targetObject.s = str.split(digitWithExponentRgx) || [];
-        return targetObject;
-      }
+      // Is a more complex string (generally svg coords, calc() or filters CSS values)
+      const matchedNumbers = str.match(digitWithExponentRgx);
+      targetObject.t = valueTypes.COMPLEX;
+      targetObject.d = matchedNumbers ? matchedNumbers.map(Number) : [];
+      targetObject.s = str.split(digitWithExponentRgx) || [];
+      return targetObject;
     }
   };
 
@@ -1532,44 +1637,19 @@
    * @param  {Number} precision
    * @return {String}
    */
-  const composeColorValue = (tween, progress, precision) => {
-    const mod = tween._modifier;
-    const fn = tween._fromNumbers;
-    const tn = tween._toNumbers;
-    const r = round$1(clamp$1(/** @type {Number} */(mod(lerp$1(fn[0], tn[0], progress))), 0, 255), 0);
-    const g = round$1(clamp$1(/** @type {Number} */(mod(lerp$1(fn[1], tn[1], progress))), 0, 255), 0);
-    const b = round$1(clamp$1(/** @type {Number} */(mod(lerp$1(fn[2], tn[2], progress))), 0, 255), 0);
-    const a = clamp$1(/** @type {Number} */(mod(round$1(lerp$1(fn[3], tn[3], progress), precision))), 0, 1);
-    if (tween._composition !== compositionTypes.none) {
-      const ns = tween._numbers;
-      ns[0] = r;
-      ns[1] = g;
-      ns[2] = b;
-      ns[3] = a;
-    }
-    return `rgba(${r},${g},${b},${a})`;
-  };
-
-  /**
-   * @param  {Tween} tween
-   * @param  {Number} progress
-   * @param  {Number} precision
-   * @return {String}
-   */
   const composeComplexValue = (tween, progress, precision) => {
     const mod = tween._modifier;
     const fn = tween._fromNumbers;
     const tn = tween._toNumbers;
     const ts = tween._strings;
-    const hasComposition = tween._composition !== compositionTypes.none;
     let v = ts[0];
     for (let j = 0, l = tn.length; j < l; j++) {
       const n = /** @type {Number} */(mod(round$1(lerp$1(fn[j], tn[j], progress), precision)));
       const s = ts[j + 1];
       v += `${s ? n + s : n}`;
-      if (hasComposition) {
-        tween._numbers[j] = n;
-      }
+      // Keep _numbers fresh for every tween, not only composed ones, so a non-composition setter that reads the lerped triplet such as three transformOrigin still animates.
+      // Potential optimization, skip the write when nothing reads it: if (hasComposition || tween._setter) tween._numbers[j] = n;
+      tween._numbers[j] = n;
     }
     return v;
   };
@@ -1621,12 +1701,14 @@
     // Execute the "expensive" iterations calculations only when necessary
     if (iterationCount > 1) {
       // bitwise NOT operator seems to be generally faster than Math.floor() across browsers
-      const currentIteration = ~~(tickableCurrentTime / (iterationDuration + (isCurrentTimeEqualOrAboveDuration ? 0 : _loopDelay)));
+      const period = iterationDuration + (isCurrentTimeEqualOrAboveDuration ? 0 : _loopDelay);
+      const currentIteration = ~~(tickableCurrentTime / period);
       tickable._currentIteration = clamp$1(currentIteration, 0, iterationCount);
       // Prevent the iteration count to go above the max iterations when reaching the end of the animation
       if (isCurrentTimeEqualOrAboveDuration) tickable._currentIteration--;
       isOdd = tickable._currentIteration % 2;
-      iterationElapsedTime = tickableCurrentTime % (iterationDuration + _loopDelay) || 0;
+      // Derive elapsed from the same `~~` truncation that gave currentIteration. Using `% period` here can disagree with `~~(/period)` under float drift at iteration boundaries and write the wrong end of the tween for one frame.
+      iterationElapsedTime = tickableCurrentTime - currentIteration * period || 0;
     }
 
     // Checks if exactly one of _reversed and (_alternate && isOdd) is true
@@ -1658,12 +1740,14 @@
     if (
       forcedTick ||
       tickMode === tickModes.AUTO && (
-        time >= tickableDelay && time <= tickableEndTime || // Normal render
+        // Timeline children render from their offset instead of their delay so the gap left by a truncated sibling is covered on seek.
+        time >= (parent && tickableDelay > 0 ? 0 : tickableDelay) && time <= tickableEndTime || // Normal render
         time <= tickableDelay && tickablePrevTime > tickableDelay || // Playhead is before the animation start time so make sure the animation is at its initial state
         time >= tickableEndTime && tickablePrevTime !== duration // Playhead is after the animation end time so make sure the animation is at its end state
       ) ||
       iterationTime >= tickableEndTime && tickablePrevTime !== duration ||
-      iterationTime <= tickableDelay && tickablePrevTime > 0 ||
+      // iterationTime is per-iteration, compared to the delay to catch a backward seek into a looped iteration's delay region. Exclude the final settled end, where iterationTime clamps to duration and would falsely match the delay region when the delay exceeds the duration.
+      iterationTime <= tickableDelay && tickablePrevTime > 0 && !isCurrentTimeEqualOrAboveDuration ||
       time <= tickablePrevTime && tickablePrevTime === duration && completed || // Force a render if a seek occurs on an completed animation
       isCurrentTimeEqualOrAboveDuration && !completed && isSetter // This prevents 0 duration tickables to be skipped
     ) {
@@ -1679,7 +1763,8 @@
 
         // Time has jumped more than globals.tickThreshold so consider this tick manual
         const forcedRender = forcedTick || (isRunningBackwards ? deltaTime * -1 : deltaTime) >= globals.tickThreshold;
-        const absoluteTime = tickable._offset + (parent ? parent._offset : 0) + tickableDelay + iterationTime;
+        // Round to match the precision of tween._absoluteStartTime so equal-time boundary checks compare cleanly without floating point drift from the unrounded _offset.
+        const absoluteTime = round$1(tickable._offset + (parent ? parent._offset : 0) + tickableDelay + iterationTime, 12);
 
         // Only Animation can have tweens, Timer returns undefined
         let tween = /** @type {Tween} */(/** @type {JSAnimation} */(tickable)._head);
@@ -1698,15 +1783,38 @@
           const tweenNextRep = tween._nextRep;
           const tweenPrevRep = tween._prevRep;
           const tweenHasComposition = tweenComposition !== compositionTypes.none;
+          // The previous sibling stops writing at its truncated end, so this tween takes over the hold from that point.
+          const tweenPrevRepEndTime = tweenPrevRep ? tweenPrevRep._absoluteStartTime + tweenPrevRep._changeDuration : 0;
+          const tweenPrevRepIsCrossParent = tweenPrevRep && tweenPrevRep.parent !== tween.parent;
+          // Same parent keyframes take over at their own start, end plus delay equals the next start by construction.
+          // Cross parent siblings take over at their update start.
+          // Negative delay siblings take over at their own start instead.
+          const tweenNextRepTakeover = !tweenNextRep || tweenNextRep._isOverridden ? tweenAbsEndTime :
+            tweenNextRep.parent === tween.parent ? tweenAbsEndTime + tweenNextRep._delay :
+            tweenNextRep._absoluteStartTime < tweenNextRep._absoluteUpdateStartTime ? tweenNextRep._absoluteStartTime : tweenNextRep._absoluteUpdateStartTime;
 
           if ((forcedRender || (
-              (tweenCurrentTime !== tweenChangeDuration || absoluteTime <= tweenAbsEndTime + (tweenNextRep ? tweenNextRep._delay : 0)) &&
-              (tweenCurrentTime !== 0 || absoluteTime >= tween._absoluteStartTime)
-            )) && (!tweenHasComposition || (
+              // Tail keyframes always re-evaluate the gate so an earlier keyframe cannot leave the target stale by writing past its own range after a backward seek.
+              (tweenCurrentTime !== tweenChangeDuration || absoluteTime <= tweenNextRepTakeover ||
+              (tweenPrevRep && !tweenPrevRepIsCrossParent && (!tweenNextRep || tweenNextRep.parent !== tween.parent))) &&
+              // A cross parent tween re-renders its from value from the previous sibling truncated end so the handoff gap holds.
+              // A keyframe re-renders its from revert while the next keyframe time is stale so a backward jump over its range cannot leave the next value in place.
+              (tweenCurrentTime !== 0 || absoluteTime >= tween._absoluteStartTime ||
+              (tweenPrevRepIsCrossParent && !tween._hasFromValue && !tweenPrevRep._isOverridden && absoluteTime >= tweenPrevRepEndTime) ||
+              (tweenNextRep && !tweenNextRep._isOverridden && tweenNextRep.parent === tween.parent && tweenNextRep._currentTime !== 0 && iterationTime < tweenNextRep._startTime))
+            )) &&
+            // Non-first keyframes wait until the iteration reaches their own start before rendering, so the previous keyframe can handle the from-revert when scrubbed backward past this tween's range.
+            (!tweenPrevRep || tweenPrevRepIsCrossParent || iterationTime >= tween._startTime) &&
+            (!tweenHasComposition || (
               !tween._isOverridden &&
               (!tween._isOverlapped || absoluteTime <= tweenAbsEndTime) &&
-              (!tweenNextRep || (tweenNextRep._isOverridden || absoluteTime <= tweenNextRep._absoluteStartTime)) &&
-              (!tweenPrevRep || (tweenPrevRep._isOverridden || (absoluteTime >= (tweenPrevRep._absoluteStartTime + tweenPrevRep._changeDuration) + tween._delay)))
+              // The next sibling owns the value past its takeover point, so yielding there keeps writes single owner in both directions.
+              (!tweenNextRep || tweenNextRep._isOverridden || absoluteTime <= tweenNextRepTakeover) &&
+              // The previous sibling owns the value up to its truncated end.
+              // Cross parent tweens take over the hold from that point, explicit from values wait for their own start.
+              (!tweenPrevRep || (tweenPrevRep._isOverridden || (!tweenPrevRepIsCrossParent ?
+                absoluteTime >= tweenPrevRepEndTime + tween._delay :
+                absoluteTime >= tween._absoluteStartTime || (!tween._hasFromValue && absoluteTime >= tweenPrevRepEndTime))))
             ))
           ) {
 
@@ -1717,7 +1825,7 @@
             const tweenType = tween._tweenType;
             const tweenIsObject = tweenType === tweenTypes.OBJECT;
             const tweenIsNumber = tweenValueType === valueTypes.NUMBER;
-            // Only round the in-between frames values if the final value is a string
+            // Only round the in-between frames values if the final value is a string. Object targets consume raw numbers, so rounding is dead work there.
             const tweenPrecision = (tweenIsNumber && tweenIsObject) || tweenProgress === 0 || tweenProgress === 1 ? -1 : globals.precision;
 
             // Recompose tween value
@@ -1733,7 +1841,22 @@
               number = /** @type {Number} */(tweenModifier(round$1(lerp$1(tween._fromNumber, tween._toNumber,  tweenProgress), tweenPrecision)));
               value = `${number}${tween._unit}`;
             } else if (tweenValueType === valueTypes.COLOR) {
-              value = composeColorValue(tween, tweenProgress, tweenPrecision);
+              const ns = tween._numbers;
+              const fn = tween._fromNumbers;
+              const tn = tween._toNumbers;
+              const omt = 1 - tweenProgress;
+              const fr = fn[0], fg = fn[1], fb = fn[2];
+              const tr = tn[0], tg = tn[1], tb = tn[2];
+              // RGB channels lerp in pseudo-linear space (square inputs, sqrt result) to approximate gamma-correct blending.
+              // See https://developer.nvidia.com/gpugems/gpugems3/part-iv-image-effects/chapter-24-importance-being-linear.
+              ns[0] = /** @type {Number} */(tweenModifier(Math.sqrt(fr * fr * omt + tr * tr * tweenProgress)));
+              ns[1] = /** @type {Number} */(tweenModifier(Math.sqrt(fg * fg * omt + tg * tg * tweenProgress)));
+              ns[2] = /** @type {Number} */(tweenModifier(Math.sqrt(fb * fb * omt + tb * tb * tweenProgress)));
+              ns[3] = /** @type {Number} */(tweenModifier(lerp$1(fn[3], tn[3], tweenProgress)));
+              // The rgba string is built only for the dispatch path or the internalRender composition tick (setters handles the color comp)
+              if (!tween._setter || internalRender) {
+                value = `rgba(${round$1(ns[0], 0)},${round$1(ns[1], 0)},${round$1(ns[2], 0)},${ns[3]})`;
+              }
             } else if (tweenValueType === valueTypes.COMPLEX) {
               value = composeComplexValue(tween, tweenProgress, tweenPrecision);
             }
@@ -1748,7 +1871,9 @@
               const tweenProperty = tween.property;
               tweenTarget = tween.target;
 
-              if (tweenIsObject) {
+              if (tween._setter) {
+                tween._setter(tweenTarget, number, tween);
+              } else if (tweenIsObject) {
                 tweenTarget[tweenProperty] = value;
               } else if (tweenType === tweenTypes.ATTRIBUTE) {
                 /** @type {DOMTarget} */(tweenTarget).setAttribute(tweenProperty, /** @type {String} */(value));
@@ -1776,6 +1901,9 @@
               tween._value = value;
             }
 
+          } else if (tweenCurrentTime && tweenPrevRep && !tweenPrevRepIsCrossParent && iterationTime < tween._startTime) {
+            // Mark the keyframe as reverted when the playhead moves before its start, the previous keyframe owns the from revert and writes it once.
+            tween._currentTime = 0;
           }
 
           if (tweenTransformsNeedUpdate && tween._renderTransforms) {
@@ -1883,6 +2011,8 @@
 
       forEachChildren(tl, (/** @type {JSAnimation} */child) => {
         const childTime = round$1((tlChildrenTime - child._offset) * child._speed, 12); // Rounding is needed when using seconds
+        // Skip past-end siblings on backward iteration so their progress=1 to-values don't render last and overwrite the active sibling's write. Compare against _delay + duration so children with a normalized delay are not skipped while still inside their active range.
+        if (tlIsRunningBackwards && childTime > child._delay + child.duration) return;
         const childTickMode = child._fps < tl._fps ? child.requestTick(tlCildrenTickTime) : tickMode;
         tlChildrenHasRendered += render(child, childTime, muteCallbacks, internalRender, childTickMode);
         if (!child.completed && tlChildrenHaveCompleted) tlChildrenHaveCompleted = false;
@@ -1959,7 +2089,20 @@
         const tweenType = tween._tweenType;
         const originalInlinedValue = tween._inlineValue;
         const tweenHadNoInlineValue = isNil(originalInlinedValue) || originalInlinedValue === emptyString;
-        if (tweenType === tweenTypes.OBJECT) {
+        if (tween._setter) {
+          if (!inlineStylesOnly && !tweenHadNoInlineValue) {
+            // Re-seed the original value to the _number / _numbers props so the setter can write the original state instead of re-applying the current frame.
+            decomposeRawValue(originalInlinedValue, decomposedOriginalValue);
+            if (decomposedOriginalValue.d) {
+              const src = decomposedOriginalValue.d;
+              const dst = tween._numbers;
+              for (let i = 0, l = src.length; i < l; i++) dst[i] = src[i];
+            } else {
+              tween._number = decomposedOriginalValue.n;
+            }
+            tween._setter(tween.target, tween._number, tween);
+          }
+        } else if (tweenType === tweenTypes.OBJECT) {
           if (!inlineStylesOnly && !tweenHadNoInlineValue) {
             tweenTarget[tweenProperty] = originalInlinedValue;
           }
@@ -2036,8 +2179,6 @@
       /** @type {Number} */
       this._lastTime = initTime;
       /** @type {Number} */
-      this._scheduledTime = 0;
-      /** @type {Number} */
       this._frameDuration = K / maxFps;
       /** @type {Number} */
       this._fps = maxFps;
@@ -2056,14 +2197,12 @@
     }
 
     set fps(frameRate) {
-      const previousFrameDuration = this._frameDuration;
       const fr = +frameRate;
       const fps = fr < minValue ? minValue : fr;
       const frameDuration = K / fps;
       if (fps > defaults.frameRate) defaults.frameRate = fps;
       this._fps = fps;
       this._frameDuration = frameDuration;
-      this._scheduledTime += frameDuration - previousFrameDuration;
     }
 
     get speed() {
@@ -2080,17 +2219,17 @@
      * @return {tickModes}
      */
     requestTick(time) {
-      const scheduledTime = this._scheduledTime;
-      this._lastTickTime = time;
-      // If the current time is lower than the scheduled time
-      // this means not enough time has passed to hit one frameDuration
-      // so skip that frame
-      if (time < scheduledTime) return tickModes.NONE;
       const frameDuration = this._frameDuration;
-      const frameDelta = time - scheduledTime;
-      // Ensures that _scheduledTime progresses in steps of at least 1 frameDuration.
-      // Skips ahead if the actual elapsed time is higher.
-      this._scheduledTime += frameDelta < frameDuration ? frameDuration : frameDelta;
+      const elapsed = time - this._lastTickTime;
+      const scaled = frameDuration * .25;
+      const tolerance = scaled < 4 ? scaled : 4;
+      // Tolerance prevents dropping frames that arrive a bit early due to RAF jitter
+      // typically <= ~25% of frame duration and capped at 4ms so it doesn't dominate at high fps.
+      // e.g. at 60fps (frameDuration=16.667ms) a frame arriving after 15ms:
+      // - without tolerance: 15 < 16.667 -> skip
+      // - with tolerance: 15 + 4 >= 16.667 -> tick
+      if (elapsed + tolerance < frameDuration) return tickModes.NONE;
+      this._lastTickTime = elapsed >= frameDuration ? time - (elapsed % frameDuration) : time;
       return tickModes.AUTO;
     }
 
@@ -2250,7 +2389,9 @@
     }
 
     set speed(playbackRate) {
-      this._speed = playbackRate * globals.timeScale;
+      const speed = playbackRate * globals.timeScale;
+      if (this._speed === speed) return;
+      this._speed = speed;
       forEachChildren(this, (/** @type {Tickable} */child) => child.speed = child._speed);
     }
 
@@ -2383,7 +2524,7 @@
       if (prevSibling) {
 
         const prevParent = prevSibling.parent;
-        const prevAbsEndTime = prevSibling._absoluteStartTime + prevSibling._changeDuration;
+        const prevAbsEndTime = prevSibling._absoluteEndTime;
 
         // Handle looped animations tween
 
@@ -2409,7 +2550,8 @@
 
         }
 
-        const absoluteUpdateStartTime = tweenAbsStartTime - tween._delay;
+        // Read the precision-matched update-start instead of subtracting tween._delay live so sequential keyframes touching at a boundary don't trigger a phantom overlap from float drift.
+        const absoluteUpdateStartTime = tween._absoluteUpdateStartTime;
 
         if (prevAbsEndTime > absoluteUpdateStartTime) {
 
@@ -2429,37 +2571,41 @@
           }
         }
 
-        // Pause (and cancel) the parent if it only contains overlapped tweens
+        // Skip the cancel cascade when both tweens share the same parent timeline, a timeline cannot replace itself.
+        const tweenParentTL = tween.parent.parent;
+        if (!tweenParentTL || tweenParentTL !== prevParent.parent) {
 
-        let pausePrevParentAnimation = true;
+          let pausePrevParentAnimation = true;
 
-        forEachChildren(prevParent, (/** @type Tween */t) => {
-          if (!t._isOverlapped) pausePrevParentAnimation = false;
-        });
+          forEachChildren(prevParent, (/** @type Tween */t) => {
+            if (!t._isOverlapped) pausePrevParentAnimation = false;
+          });
 
-        if (pausePrevParentAnimation) {
-          const prevParentTL = prevParent.parent;
-          if (prevParentTL) {
-            let pausePrevParentTL = true;
-            forEachChildren(prevParentTL, (/** @type JSAnimation */a) => {
-              if (a !== prevParent) {
-                forEachChildren(a, (/** @type Tween */t) => {
-                  if (!t._isOverlapped) pausePrevParentTL = false;
-                });
+          if (pausePrevParentAnimation) {
+            const prevParentTL = prevParent.parent;
+            if (prevParentTL) {
+              let pausePrevParentTL = true;
+              forEachChildren(prevParentTL, (/** @type JSAnimation */a) => {
+                if (a !== prevParent) {
+                  forEachChildren(a, (/** @type Tween */t) => {
+                    if (!t._isOverlapped) pausePrevParentTL = false;
+                  });
+                }
+              });
+              if (pausePrevParentTL) {
+                prevParentTL.cancel();
               }
-            });
-            if (pausePrevParentTL) {
-              prevParentTL.cancel();
+            } else {
+              prevParent.cancel();
+              // Previously, calling .cancel() on a timeline child would affect the render order of other children
+              // Worked around this by marking it as .completed and using .pause() for safe removal in the engine loop
+              // This is no longer needed since timeline tween composition is now handled separately
+              // Keeping this here for reference
+              // prevParent.completed = true;
+              // prevParent.pause();
             }
-          } else {
-            prevParent.cancel();
-            // Previously, calling .cancel() on a timeline child would affect the render order of other children
-            // Worked around this by marking it as .completed and using .pause() for safe removal in the engine loop
-            // This is no longer needed since timeline tween composition is now handled separately
-            // Keeping this here for reference
-            // prevParent.completed = true;
-            // prevParent.pause();
           }
+
         }
 
       }
@@ -2514,14 +2660,12 @@
       tween._number = 0;
       lookupTween._fromNumber = toNumber;
 
-      if (tween._toNumbers) {
+      if (tween._toNumbers.length) {
         const toNumbers = cloneArray(tween._toNumbers);
-        if (toNumbers) {
-          toNumbers.forEach((value, i) => {
-            tween._fromNumbers[i] = lookupTween._fromNumbers[i] - value;
-            tween._toNumbers[i] = 0;
-          });
-        }
+        toNumbers.forEach((value, i) => {
+          tween._fromNumbers[i] = lookupTween._fromNumbers[i] - value;
+          tween._toNumbers[i] = 0;
+        });
         lookupTween._fromNumbers = toNumbers;
       }
 
@@ -3222,18 +3366,16 @@
   function registerTargets(targets) {
     const parsedTargetsArray = parseTargets(targets);
     const parsedTargetsLength = parsedTargetsArray.length;
-    if (parsedTargetsLength) {
-      for (let i = 0; i < parsedTargetsLength; i++) {
-        const target = parsedTargetsArray[i];
-        if (!target[isRegisteredTargetSymbol]) {
-          target[isRegisteredTargetSymbol] = true;
-          const isSvgType = isSvg(target);
-          const isDom = /** @type {DOMTarget} */(target).nodeType || isSvgType;
-          if (isDom) {
-            target[isDomSymbol] = true;
-            target[isSvgSymbol] = isSvgType;
-            target[transformsSymbol] = {};
-          }
+    for (let i = 0; i < parsedTargetsLength; i++) {
+      const target = parsedTargetsArray[i];
+      if (!target[isRegisteredTargetSymbol]) {
+        target[isRegisteredTargetSymbol] = true;
+        const isSvgType = isSvg(target);
+        const isDom = /** @type {DOMTarget} */(target).nodeType || isSvgType;
+        if (isDom) {
+          target[isDomSymbol] = true;
+          target[isSvgSymbol] = isSvgType;
+          target[transformsSymbol] = {};
         }
       }
     }
@@ -3355,8 +3497,8 @@
 
   /**
    * @typedef  {Object} EasesFunctions
-   * @property {typeof none} linear
-   * @property {typeof none} none
+   * @property {EasingFunction} linear
+   * @property {EasingFunction} none
    * @property {PowerEasing} in
    * @property {PowerEasing} out
    * @property {PowerEasing} inOut
@@ -3588,6 +3730,11 @@
 
       super(/** @type {TimerParams & AnimationParams} */(parameters), parent, parentPosition);
 
+      /** @type {Tween} */
+      this._head;
+      /** @type {Tween} */
+      this._tail;
+
       ++JSAnimationId;
 
       const parsedTargets = registerTargets(targets);
@@ -3644,6 +3791,7 @@
           if (isKey(p)) {
 
             const tweenType = getTweenType(target, p);
+            const adapterProp = resolveAdapterEntry(target, p);
 
             const propName = sanitizePropertyName(p, target, tweenType);
 
@@ -3727,7 +3875,7 @@
               } else {
                 tweenToValue = computedToValue;
               }
-              const tweenFromValue = getFunctionValue(key.from, target, ti, tl, null, prevSiblingTween);
+              const tweenFromValue = getFunctionValue(key.from, target, ti, tl, fromFunctionStore, prevSiblingTween);
               const easeToParse = key.ease || tEasing;
 
               const easeFunctionResult = getFunctionValue(easeToParse, target, ti, tl, null, prevSiblingTween);
@@ -3745,9 +3893,13 @@
               const hasToValue = !isUnd(tweenToValue);
               const isFromToArray = isArr(tweenToValue);
               const isFromToValue = isFromToArray || (hasFromvalue && hasToValue);
+              // Capture the update-start in local time, the previous sibling's end for keyframes after the first, zero for the first keyframe. Used to derive a precision-matched _absoluteUpdateStartTime below.
+              const tweenUpdateStartLocal = prevTween ? lastTweenChangeEndTime : 0;
               const tweenStartTime = prevTween ? lastTweenChangeEndTime + tweenDelay : tweenDelay;
               // Rounding is necessary here to minimize floating point errors when working in seconds
               const absoluteStartTime = round$1(absoluteOffsetTime + tweenStartTime, 12);
+              // Match the rounding pattern of prevSibling._absoluteEndTime so the composition overlap check compares cleanly when keyframes touch at a boundary.
+              const absoluteUpdateStartTime = round$1(absoluteOffsetTime + tweenUpdateStartLocal, 12);
 
               // Force a onRender callback if the animation contains at least one from value and autoplay is set to false
               if (!shouldTriggerRender && (hasFromvalue || isFromToArray)) shouldTriggerRender = 1;
@@ -3756,9 +3908,9 @@
 
               if (tweenComposition !== compositionTypes.none) {
                 let nextSibling = siblings._head;
-                // Iterate trough all the next siblings until we find a sibling with an equal or inferior start time
-                while (nextSibling && !nextSibling._isOverridden && nextSibling._absoluteStartTime <= absoluteStartTime) {
-                  prevSibling = nextSibling;
+                // Walk prior siblings up to the new tween, skipping overridden ones so the chain resolves to the latest live value instead of stopping at the first override.
+                while (nextSibling && nextSibling._absoluteStartTime <= absoluteStartTime) {
+                  if (!nextSibling._isOverridden) prevSibling = nextSibling;
                   nextSibling = nextSibling._nextRep;
                   // Overrides all the next siblings if the next sibling starts at the same time of after as the new tween start time
                   if (nextSibling && nextSibling._absoluteStartTime >= absoluteStartTime) {
@@ -3812,8 +3964,8 @@
                   if (prevTween) {
                     decomposeTweenValue(prevTween, fromTargetObject);
                   } else {
-                    decomposeRawValue(parent && prevSibling && prevSibling.parent.parent === parent ? prevSibling._value :
                     // No need to get and parse the original value if the tween is part of a timeline and has a previous sibling part of the same timeline
+                    decomposeRawValue(parent && prevSibling && prevSibling.parent.parent === parent ? prevSibling._value :
                     getOriginalAnimatableValue(target, propName, tweenType, inlineStylesStore), fromTargetObject);
                   }
                 }
@@ -3852,8 +4004,7 @@
                   const colorValue = fromTargetObject.t === valueTypes.COLOR ? fromTargetObject : toTargetObject;
                   const notColorValue = fromTargetObject.t === valueTypes.COLOR ? toTargetObject : fromTargetObject;
                   notColorValue.t = valueTypes.COLOR;
-                  notColorValue.s = colorValue.s;
-                  notColorValue.d = [0, 0, 0, 1];
+                  notColorValue.d = colorValue.d.map(() => 0);
                 }
               }
 
@@ -3883,6 +4034,16 @@
               let inlineValue = inlineStylesStore[propName];
               if (!isNil(inlineValue)) inlineStylesStore[propName] = null;
 
+              // Resolve the adapter setter once so render skips the lookup per frame.
+              const tweenSetter = adapterProp ? adapterProp.set : null;
+
+              // Rounding is necessary here to minimize floating point errors when working in seconds
+              lastTweenChangeEndTime = round$1(tweenStartTime + tweenUpdateDuration, 12);
+
+              const fromD = fromTargetObject.d;
+              const toD = toTargetObject.d;
+              const toS = toTargetObject.s;
+
               /** @type {Tween} */
               const tween = {
                 parent: this,
@@ -3893,12 +4054,12 @@
                 _toFunc: toFunctionStore.func,
                 _fromFunc: fromFunctionStore.func,
                 _ease: parseEase(tweenEasing),
-                _fromNumbers: cloneArray(fromTargetObject.d),
-                _toNumbers: cloneArray(toTargetObject.d),
-                _strings: cloneArray(toTargetObject.s),
+                _fromNumbers: fromD ? cloneArray(fromD) : emptyArray,
+                _toNumbers: toD ? cloneArray(toD) : emptyArray,
+                _strings: toS ? cloneArray(toS) : emptyArray,
                 _fromNumber: fromTargetObject.n,
                 _toNumber: toTargetObject.n,
-                _numbers: cloneArray(fromTargetObject.d), // For additive tween and animatables
+                _numbers: fromD ? cloneArray(fromD) : emptyArray, // For additive tween and animatables
                 _number: fromTargetObject.n, // For additive tween and animatables
                 _unit: toTargetObject.u,
                 _modifier: tweenModifier,
@@ -3908,8 +4069,12 @@
                 _updateDuration: tweenUpdateDuration,
                 _changeDuration: tweenUpdateDuration,
                 _absoluteStartTime: absoluteStartTime,
+                _absoluteUpdateStartTime: absoluteUpdateStartTime,
+                _absoluteEndTime: round$1(absoluteOffsetTime + lastTweenChangeEndTime, 12),
+                _hasFromValue: hasFromvalue || isFromToArray ? 1 : 0,
                 // NOTE: Investigate bit packing to stores ENUM / BOOL
                 _tweenType: tweenType,
+                _setter: tweenSetter,
                 _valueType: toTargetObject.t,
                 _composition: tweenComposition,
                 _isOverlapped: 0,
@@ -3932,10 +4097,11 @@
               const vt = tween._valueType;
               if (vt === valueTypes.COMPLEX) {
                 tween._value = composeComplexValue(tween, 1, -1);
-              } else if (vt === valueTypes.COLOR) {
-                tween._value = composeColorValue(tween, 1, -1);
               } else if (vt === valueTypes.UNIT) {
                 tween._value = `${tweenModifier(tween._toNumber)}${tween._unit}`;
+              } else if (vt === valueTypes.COLOR) {
+                const d = toTargetObject.d;
+                tween._value = `rgba(${round$1(d[0], 0)},${round$1(d[1], 0)},${round$1(d[2], 0)},${d[3]})`;
               } else {
                 tween._value = tweenModifier(tween._toNumber);
               }
@@ -3943,8 +4109,7 @@
               if (isNaN(firstTweenChangeStartTime)) {
                 firstTweenChangeStartTime = tween._startTime;
               }
-              // Rounding is necessary here to minimize floating point errors when working in seconds
-              lastTweenChangeEndTime = round$1(tweenStartTime + tweenUpdateDuration, 12);
+
               prevTween = tween;
               animationAnimationLength++;
 
@@ -4050,8 +4215,11 @@
         tween._updateDuration = normalizeTime(tween._updateDuration * timeScale);
         tween._changeDuration = normalizeTime(tween._changeDuration * timeScale);
         tween._currentTime *= timeScale;
+        tween._delay *= timeScale;
         tween._startTime *= timeScale;
         tween._absoluteStartTime *= timeScale;
+        tween._absoluteUpdateStartTime *= timeScale;
+        tween._absoluteEndTime *= timeScale;
       });
       return super.stretch(newDuration);
     }
@@ -4175,8 +4343,6 @@
              tlDuration : tlDuration;
     }
   };
-
-  
 
   
 
@@ -4374,13 +4540,21 @@
       if (!isUnd(synced) && !isUnd(/** @type {WAAPIAnimation} */(synced).persist)) {
         /** @type {WAAPIAnimation} */(synced).persist = true;
       }
-      return this.add(synced, { currentTime: [0, duration], duration, delay: 0, ease: 'linear', playbackEase: 'linear' }, position);
+      const editor = globals.editor;
+      const childHook = editor && editor.addTimelineChild;
+      if (editor && editor.addTimelineSync) {
+        position = editor.addTimelineSync(synced, position, this.id);
+        editor.addTimelineChild = null; // Suppress the per-child hook for the internal .add, sync already registered.
+      }
+      const result = this.add(synced, { currentTime: [0, duration], duration, delay: 0, ease: 'linear', playbackEase: 'linear' }, position);
+      if (editor) editor.addTimelineChild = childHook;
+      return result;
     }
 
     /**
      * @param  {TargetsParam} targets
      * @param  {AnimationParams} parameters
-     * @param  {TimelinePosition} [position]
+     * @param  {TimelinePosition|StaggerFunction<Number|String>|TweakRegister} [position]
      * @return {this}
      */
     set(targets, parameters, position) {
@@ -4397,6 +4571,7 @@
      */
     call(callback, position) {
       if (isUnd(callback) || callback && !isFnc(callback)) return this;
+      if (globals.editor && globals.editor.addTimelineCall) position = globals.editor.addTimelineCall(callback, position, this.id);
       return this.add({ duration: 0, delay: 0, onComplete: () => callback(this) }, position);
     }
 
@@ -4408,6 +4583,7 @@
      */
     label(labelName, position) {
       if (isUnd(labelName) || labelName && !isStr(labelName)) return this;
+      if (globals.editor && globals.editor.addTimelineLabel) position = globals.editor.addTimelineLabel(labelName, position, this.id);
       this.labels[labelName] = parseTimelinePosition(this, position);
       return this;
     }
@@ -4516,6 +4692,7 @@
       const callbacksAnimationParams = { v: 1, autoplay: false };
       const properties = {};
       this.targets = [];
+      /** @type {Record<String, JSAnimation>} */
       this.animations = {};
       /** @type {JSAnimation|null} */
       this.callbacks = null;
@@ -5054,6 +5231,9 @@
    */
   const set = (targets, parameters) => {
     if (isUnd(parameters)) return;
+    if (globals.editor && globals.editor.addSet) {
+      return globals.editor.addSet(targets, parameters);
+    }
     parameters.duration = minValue;
     // Do not overrides currently active tweens by default
     parameters.composition = setValue(parameters.composition, compositionTypes.none);
@@ -6290,13 +6470,14 @@
   };
 
   /**
-   * @param  {(...args: any[]) => Tickable | ((...args: any[]) => void) | void} constructor
-   * @return {(...args: any[]) => Tickable | ((...args: any[]) => void)}
+   * @template {Tickable | ((...args: any[]) => void) | void} T
+   * @param  {(...args: any[]) => T} constructor
+   * @return {(...args: any[]) => T extends void ? () => void : T}
    */
   const keepTime = constructor => {
     /** @type {Tickable} */
     let tracked;
-    return (...args) => {
+    return /** @type {(...args: any[]) => T extends void ? () => void : T} */(/** @type {*} */((...args) => {
       let currentIteration, currentIterationProgress, reversed, alternate, startTime;
       if (tracked) {
         currentIteration = tracked.currentIteration;
@@ -6314,7 +6495,7 @@
         /** @type {Tickable} */(tracked)._startTime = startTime;
       }
       return cleanup || noop;
-    }
+    }));
   };
 
   
@@ -6712,12 +6893,14 @@
 
     refreshScrollObservers() {
       forEachChildren(this, (/** @type {ScrollObserver} */child) => {
+        if (!child.ready) return;
         if (child._debug) {
           child.removeDebug();
         }
       });
       this.updateBounds();
       forEachChildren(this, (/** @type {ScrollObserver} */child) => {
+        if (!child.ready) return;
         child.refresh();
         child.onResize(child);
         if (child._debug) {
@@ -9815,11 +9998,12 @@
    * Adapted from https://bost.ocks.org/mike/shuffle/
    *
    * @param  {Array} items - The array to shuffle (will be modified in-place)
+   * @param  {RandomNumberGenerator} [rnd] - Optional RNG matching the random() signature (defaults to random)
    * @return {Array} The same array reference, now shuffled
    */
-  const shuffle = items => {
+  const shuffle = (items, rnd = random) => {
     let m = items.length, t, i;
-    while (m) { i = random(0, --m); t = items[m]; items[m] = items[i]; items[i] = t; }
+    while (m) { i = rnd(0, --m); t = items[m]; items[m] = items[i]; items[i] = t; }
     return items;
   };
 
@@ -9864,6 +10048,7 @@
     let values = [];
     let maxValue = 0;
     let cachedOffset;
+    let jitterSamples = null;
     const from = params.from;
     const reversed = params.reversed;
     const ease = params.ease;
@@ -9885,27 +10070,42 @@
     const val2 = isRange ? parseNumber(val[1]) : 0;
     const unitMatch = unitsExecRgx.exec((isRange ? val[1] : val) + emptyString);
     const start = params.start || 0 + (isRange ? val1 : 0);
+    const seed = params.seed;
+    const hasSeed = !isUnd(seed) && seed !== false;
+    const rng = hasSeed ? createSeededRandom(seed === true ? 0 : /** @type {Number} */(seed)) : random;
+    const jitter = params.jitter;
+    const hasJitter = !isUnd(jitter);
+    const jitterIsArr = isArr(jitter);
+    const jitterStart = jitterIsArr ? /** @type {[Number,Number]} */(jitter)[0] : /** @type {Number} */(jitter) || 0;
+    const jitterEnd = jitterIsArr ? /** @type {[Number,Number]} */(jitter)[1] : /** @type {Number} */(jitter) || 0;
     let fromIndex = fromFirst ? 0 : isNum(from) ? from : 0;
     return (target, i, t, _, tl) => {
       const [ registeredTarget ] = registerTargets(target);
       const total = isUnd(customTotal) ? t.length : customTotal;
       const customIndex = !isUnd(useProp) ? isFnc(useProp) ? useProp(registeredTarget, i, total) : getOriginalAnimatableValue(registeredTarget, useProp) : false;
-      const staggerIndex = isNum(customIndex) || isStr(customIndex) && isNum(+customIndex) ? +customIndex : i;
+      const customIdx = isNum(customIndex) || isStr(customIndex) && isNum(+customIndex) ? +customIndex : i;
+      // Fall back to the natural index when the resolved value lands outside [0, total) so values[staggerIndex] never reads undefined.
+      const staggerIndex = customIdx >= 0 && customIdx < total ? customIdx : i;
       if (fromCenter) fromIndex = (total - 1) / 2;
       if (fromLast) fromIndex = total - 1;
       if (!values.length) {
         if (autoGrid) {
           let hasPositions = true;
+          let has3D = false;
           let minPosX = Infinity;
           let minPosY = Infinity;
+          let minPosZ = Infinity;
           let maxPosX = -Infinity;
           let maxPosY = -Infinity;
+          let maxPosZ = -Infinity;
           const pxArr = [];
           const pyArr = [];
+          const pzArr = [];
           for (let index = 0; index < total; index++) {
             const el = t[index];
             let px = 0;
             let py = 0;
+            let pz = 0;
             let found = false;
             if (el && isFnc(el.getBoundingClientRect)) {
               const rect = el.getBoundingClientRect();
@@ -9917,6 +10117,10 @@
               if (obj && isNum(obj.x) && isNum(obj.y)) {
                 px = obj.x;
                 py = obj.y;
+                if (isNum(obj.z)) {
+                  pz = obj.z;
+                  has3D = true;
+                }
                 found = true;
               }
             }
@@ -9926,42 +10130,52 @@
             }
             pxArr.push(px);
             pyArr.push(py);
+            pzArr.push(pz);
             if (px < minPosX) minPosX = px;
             if (py < minPosY) minPosY = py;
+            if (pz < minPosZ) minPosZ = pz;
             if (px > maxPosX) maxPosX = px;
             if (py > maxPosY) maxPosY = py;
+            if (pz > maxPosZ) maxPosZ = pz;
           }
           if (hasPositions) {
             let fX = pxArr[0];
             let fY = pyArr[0];
+            let fZ = pzArr[0];
             if (fromArr) {
               fX = minPosX + from[0] * (maxPosX - minPosX);
               fY = minPosY + from[1] * (maxPosY - minPosY);
+              fZ = has3D ? minPosZ + (from.length >= 3 ? from[2] : 0.5) * (maxPosZ - minPosZ) : 0;
             } else if (fromCenter) {
               fX = (minPosX + maxPosX) / 2;
               fY = (minPosY + maxPosY) / 2;
+              fZ = (minPosZ + maxPosZ) / 2;
             } else if (fromLast) {
               fX = pxArr[total - 1];
               fY = pyArr[total - 1];
+              fZ = pzArr[total - 1];
             } else if (isNum(from)) {
               fX = pxArr[from];
               fY = pyArr[from];
+              fZ = pzArr[from];
             }
             for (let index = 0; index < total; index++) {
               const distanceX = fX - pxArr[index];
               const distanceY = fY - pyArr[index];
-              let value = sqrt(distanceX * distanceX + distanceY * distanceY);
+              const distanceZ = fZ - pzArr[index];
+              let value = sqrt(distanceX * distanceX + distanceY * distanceY + (has3D ? distanceZ * distanceZ : 0));
               if (axis === 'x') value = -distanceX;
               if (axis === 'y') value = -distanceY;
+              if (axis === 'z') value = -distanceZ;
               values.push(value);
             }
             let minDist = Infinity;
-            for (let index = 0, l = values.length; index < l; index++) {
+            for (let index = 0; index < total; index++) {
               const absVal = abs(values[index]);
               if (absVal > 0 && absVal < minDist) minDist = absVal;
             }
             if (minDist > 0 && minDist < Infinity) {
-              for (let index = 0, l = values.length; index < l; index++) {
+              for (let index = 0; index < total; index++) {
                 values[index] = values[index] / minDist;
               }
             }
@@ -9975,32 +10189,51 @@
             if (!grid) {
               values.push(abs(fromIndex - index));
             } else {
-              let fromX, fromY;
+              const dims = grid.length;
+              const wh = grid[0] * grid[1];
+              let fromX, fromY, fromZ;
               if (fromArr) {
                 fromX = from[0] * (grid[0] - 1);
                 fromY = from[1] * (grid[1] - 1);
+                fromZ = dims === 3 ? (from.length >= 3 ? from[2] : 0.5) * (grid[2] - 1) : 0;
               } else if (fromCenter) {
                 fromX = (grid[0] - 1) / 2;
                 fromY = (grid[1] - 1) / 2;
+                fromZ = dims === 3 ? (grid[2] - 1) / 2 : 0;
               } else {
                 fromX = fromIndex % grid[0];
-                fromY = floor(fromIndex / grid[0]);
+                fromY = floor(fromIndex / grid[0]) % grid[1];
+                fromZ = dims === 3 ? floor(fromIndex / wh) : 0;
               }
               const toX = index % grid[0];
-              const toY = floor(index / grid[0]);
+              const toY = floor(index / grid[0]) % grid[1];
+              const toZ = dims === 3 ? floor(index / wh) : 0;
               const distanceX = fromX - toX;
               const distanceY = fromY - toY;
-              let value = sqrt(distanceX * distanceX + distanceY * distanceY);
+              const distanceZ = fromZ - toZ;
+              let value = sqrt(distanceX * distanceX + distanceY * distanceY + (dims === 3 ? distanceZ * distanceZ : 0));
               if (axis === 'x') value = -distanceX;
               if (axis === 'y') value = -distanceY;
+              if (axis === 'z') value = -distanceZ;
               values.push(value);
             }
           }
         }
-        maxValue = max(...values);
-        if (staggerEase) values = values.map(val => staggerEase(val / maxValue) * maxValue);
-        if (reversed) values = values.map(val => axis ? (val < 0) ? val * -1 : -val : abs(maxValue - val));
-        if (fromRandom) values = shuffle(values);
+        maxValue = values[0];
+        for (let k = 1; k < total; k++) if (values[k] > maxValue) maxValue = values[k];
+        if (staggerEase || reversed) {
+          for (let k = 0; k < total; k++) {
+            let v = values[k];
+            if (staggerEase) v = staggerEase(v / maxValue) * maxValue;
+            if (reversed) v = axis ? -v : abs(maxValue - v);
+            values[k] = v;
+          }
+        }
+        if (hasJitter) {
+          jitterSamples = new Array(total);
+          for (let k = 0; k < total; k++) jitterSamples[k] = rng(-1, 1, 4);
+        }
+        if (fromRandom) values = shuffle(values, rng);
       }
       const spacing = isRange ? (val2 - val1) / maxValue : val1;
       if (isUnd(cachedOffset)) {
@@ -10008,6 +10241,11 @@
       }
       /** @type {String|Number} */
       let output = cachedOffset + ((spacing * round$1(values[staggerIndex], 2)) || 0);
+      if (hasJitter) {
+        const progress = maxValue ? values[staggerIndex] / maxValue : 0;
+        const mag = jitterStart + (jitterEnd - jitterStart) * progress;
+        output = /** @type {Number} */(output) + jitterSamples[staggerIndex] * mag;
+      }
       if (params.modifier) output = params.modifier(/** @type {Number} */(output));
       if (unitMatch) output = `${output}${unitMatch[2]}`;
       return output;
@@ -10377,6 +10615,7 @@
    */
   const generateTemplate = (type, params = {}) => {
     let template = ``;
+    if (!params) params = {};
     const classString = isStr(params.class) ? ` class="${params.class}"` : '';
     const cloneType = setValue(params.clone, false);
     const wrapType = setValue(params.wrap, false);
@@ -10759,6 +10998,16 @@
   
 
   /**
+   * @typedef {Object} ScrambleTextTween
+   * @property {Number} from
+   * @property {Number} to
+   * @property {Number} duration
+   * @property {Number} delay
+   * @property {String} ease
+   * @property {(v: Number) => String} modifier
+   */
+
+  /**
    * '-' is the range operator; place it at the start or end of the string to use it as a literal (e.g. '-abc' or 'abc-')
    * @param {String} str
    * @return {String}
@@ -10795,7 +11044,7 @@
    * progressively revealing the original text.
    *
    * @param {ScrambleTextParams} [params]
-   * @return {FunctionValue}
+   * @return {FunctionValue<ScrambleTextTween>}
    */
   const scrambleText = (params = {}) => {
     if (!params) params = {};

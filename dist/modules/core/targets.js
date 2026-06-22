@@ -1,6 +1,6 @@
 /**
  * Anime.js - core - ESM
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -111,18 +111,16 @@ function parseTargets(targets) {
 function registerTargets(targets) {
   const parsedTargetsArray = parseTargets(targets);
   const parsedTargetsLength = parsedTargetsArray.length;
-  if (parsedTargetsLength) {
-    for (let i = 0; i < parsedTargetsLength; i++) {
-      const target = parsedTargetsArray[i];
-      if (!target[isRegisteredTargetSymbol]) {
-        target[isRegisteredTargetSymbol] = true;
-        const isSvgType = isSvg(target);
-        const isDom = /** @type {DOMTarget} */(target).nodeType || isSvgType;
-        if (isDom) {
-          target[isDomSymbol] = true;
-          target[isSvgSymbol] = isSvgType;
-          target[transformsSymbol] = {};
-        }
+  for (let i = 0; i < parsedTargetsLength; i++) {
+    const target = parsedTargetsArray[i];
+    if (!target[isRegisteredTargetSymbol]) {
+      target[isRegisteredTargetSymbol] = true;
+      const isSvgType = isSvg(target);
+      const isDom = /** @type {DOMTarget} */(target).nodeType || isSvgType;
+      if (isDom) {
+        target[isDomSymbol] = true;
+        target[isSvgSymbol] = isSvgType;
+        target[transformsSymbol] = {};
       }
     }
   }

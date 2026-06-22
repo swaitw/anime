@@ -1,4 +1,4 @@
-import { waapi, animate, stagger, createSpring, utils } from '../../../../dist/modules/index.js';
+import { waapi, stagger, utils, spring } from '../../../../dist/modules/index.js';
 
 const $animation = document.querySelector('.animation');
 const total = 36;
@@ -6,7 +6,7 @@ const total = 36;
 for (let i = 0; i < total; i++) {
   const $square = document.createElement('div');
   $square.classList.add('square', 'red');
-  utils.set($square, { rotate: (i / total) * 360, translateY: 250 })
+  $square.style.transform = `rotate(${(i / total) * 360}deg) translateY(250px)`;
   $animation.appendChild($square);
 }
 
@@ -36,13 +36,15 @@ for (let i = 0; i < total; i++) {
 // Anime.js WAAPI wrapper
 
 waapi.animate('.square', {
-  transform: (_, i) => `rotate(${(i / total) * 360}deg) translateY(200px) scaleX(.25)`,
+  transform: (_, i) => {
+    return `rotate(${(i / total) * 360}deg) translateY(200px) scaleX(.25)`;
+  },
   backgroundColor: {
     to: [`var(--orange-1)`, `var(--red-1)`],
     ease: 'linear',
     duration: 3000,
   },
-  ease: createSpring({ stiffness: 150 }),
+  ease: spring({ stiffness: 150 }),
   loop: true,
   alternate: true,
   delay: stagger(95),

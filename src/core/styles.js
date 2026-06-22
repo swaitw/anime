@@ -17,6 +17,11 @@ import {
   buildTransformString,
 } from './transforms.js';
 
+import {
+  decomposeRawValue,
+  decomposedOriginalValue,
+} from './values.js';
+
 /**
  * @import {
  *   JSAnimation,
@@ -82,7 +87,20 @@ export const revertValues = (renderable, inlineStylesOnly = false) => {
       const tweenType = tween._tweenType;
       const originalInlinedValue = tween._inlineValue;
       const tweenHadNoInlineValue = isNil(originalInlinedValue) || originalInlinedValue === emptyString;
-      if (tweenType === tweenTypes.OBJECT) {
+      if (tween._setter) {
+        if (!inlineStylesOnly && !tweenHadNoInlineValue) {
+          // Re-seed the original value to the _number / _numbers props so the setter can write the original state instead of re-applying the current frame.
+          decomposeRawValue(originalInlinedValue, decomposedOriginalValue);
+          if (decomposedOriginalValue.d) {
+            const src = decomposedOriginalValue.d;
+            const dst = tween._numbers;
+            for (let i = 0, l = src.length; i < l; i++) dst[i] = src[i];
+          } else {
+            tween._number = decomposedOriginalValue.n;
+          }
+          tween._setter(tween.target, tween._number, tween);
+        }
+      } else if (tweenType === tweenTypes.OBJECT) {
         if (!inlineStylesOnly && !tweenHadNoInlineValue) {
           tweenTarget[tweenProperty] = originalInlinedValue;
         }

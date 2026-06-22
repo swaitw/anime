@@ -1,6 +1,6 @@
 /**
  * Anime.js - easings - ESM
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -79,8 +79,8 @@ const easeInFunctions = {
 
 /**
  * @typedef  {Object} EasesFunctions
- * @property {typeof none} linear
- * @property {typeof none} none
+ * @property {EasingFunction} linear
+ * @property {EasingFunction} none
  * @property {PowerEasing} in
  * @property {PowerEasing} out
  * @property {PowerEasing} inOut

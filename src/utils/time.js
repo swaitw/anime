@@ -31,13 +31,14 @@ export const sync = (callback = noop) => {
 }
 
 /**
- * @param  {(...args: any[]) => Tickable | ((...args: any[]) => void) | void} constructor
- * @return {(...args: any[]) => Tickable | ((...args: any[]) => void)}
+ * @template {Tickable | ((...args: any[]) => void) | void} T
+ * @param  {(...args: any[]) => T} constructor
+ * @return {(...args: any[]) => T extends void ? () => void : T}
  */
 export const keepTime = constructor => {
   /** @type {Tickable} */
   let tracked;
-  return (...args) => {
+  return /** @type {(...args: any[]) => T extends void ? () => void : T} */(/** @type {*} */((...args) => {
     let currentIteration, currentIterationProgress, reversed, alternate, startTime;
     if (tracked) {
       currentIteration = tracked.currentIteration;
@@ -55,5 +56,5 @@ export const keepTime = constructor => {
       /** @type {Tickable} */(tracked)._startTime = startTime;
     }
     return cleanup || noop;
-  }
+  }));
 }

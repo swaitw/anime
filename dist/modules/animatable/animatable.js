@@ -1,6 +1,6 @@
 /**
  * Anime.js - animatable - ESM
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -58,6 +58,7 @@ class Animatable {
     const callbacksAnimationParams = { v: 1, autoplay: false };
     const properties = {};
     this.targets = [];
+    /** @type {Record<String, JSAnimation>} */
     this.animations = {};
     /** @type {JSAnimation|null} */
     this.callbacks = null;

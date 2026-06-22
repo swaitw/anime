@@ -156,7 +156,7 @@ export const snap = (v, increment) => isArr(increment) ? increment.reduce((close
  * @param  {Number} factor - Interpolation factor in the range [0, 1]
  * @return {Number} The interpolated value
  */
-export const lerp = (start, end, factor) => start + (end - start) * factor;
+export const lerp = (start, end, factor) => factor === 1 ? end : factor === 0 ? start : start + (end - start) * factor;
 
 /**
  * Replaces infinity with maximum safe value

@@ -1,6 +1,7 @@
 import {
   K,
   minValue,
+  emptyArray,
   tweenTypes,
   valueTypes,
   compositionTypes,
@@ -34,6 +35,10 @@ import {
 } from '../core/targets.js';
 
 import {
+  resolveAdapterEntry,
+} from '../adapters/registry.js';
+
+import {
   getRelativeValue,
   getFunctionValue,
   getOriginalAnimatableValue,
@@ -43,7 +48,6 @@ import {
   decomposeTweenValue,
   decomposedOriginalValue,
   createDecomposedValueTargetObject,
-  composeColorValue,
   composeComplexValue,
 } from '../core/values.js';
 
@@ -231,6 +235,11 @@ export class JSAnimation extends Timer {
 
     super(/** @type {TimerParams & AnimationParams} */(parameters), parent, parentPosition);
 
+    /** @type {Tween} */
+    this._head;
+    /** @type {Tween} */
+    this._tail;
+
     ++JSAnimationId;
 
     const parsedTargets = registerTargets(targets);
@@ -287,6 +296,7 @@ export class JSAnimation extends Timer {
         if (isKey(p)) {
 
           const tweenType = getTweenType(target, p);
+          const adapterProp = resolveAdapterEntry(target, p);
 
           const propName = sanitizePropertyName(p, target, tweenType);
 
@@ -370,7 +380,7 @@ export class JSAnimation extends Timer {
             } else {
               tweenToValue = computedToValue;
             }
-            const tweenFromValue = getFunctionValue(key.from, target, ti, tl, null, prevSiblingTween);
+            const tweenFromValue = getFunctionValue(key.from, target, ti, tl, fromFunctionStore, prevSiblingTween);
             const easeToParse = key.ease || tEasing;
 
             const easeFunctionResult = getFunctionValue(easeToParse, target, ti, tl, null, prevSiblingTween);
@@ -388,9 +398,13 @@ export class JSAnimation extends Timer {
             const hasToValue = !isUnd(tweenToValue);
             const isFromToArray = isArr(tweenToValue);
             const isFromToValue = isFromToArray || (hasFromvalue && hasToValue);
+            // Capture the update-start in local time, the previous sibling's end for keyframes after the first, zero for the first keyframe. Used to derive a precision-matched _absoluteUpdateStartTime below.
+            const tweenUpdateStartLocal = prevTween ? lastTweenChangeEndTime : 0;
             const tweenStartTime = prevTween ? lastTweenChangeEndTime + tweenDelay : tweenDelay;
             // Rounding is necessary here to minimize floating point errors when working in seconds
             const absoluteStartTime = round(absoluteOffsetTime + tweenStartTime, 12);
+            // Match the rounding pattern of prevSibling._absoluteEndTime so the composition overlap check compares cleanly when keyframes touch at a boundary.
+            const absoluteUpdateStartTime = round(absoluteOffsetTime + tweenUpdateStartLocal, 12);
 
             // Force a onRender callback if the animation contains at least one from value and autoplay is set to false
             if (!shouldTriggerRender && (hasFromvalue || isFromToArray)) shouldTriggerRender = 1;
@@ -399,9 +413,9 @@ export class JSAnimation extends Timer {
 
             if (tweenComposition !== compositionTypes.none) {
               let nextSibling = siblings._head;
-              // Iterate trough all the next siblings until we find a sibling with an equal or inferior start time
-              while (nextSibling && !nextSibling._isOverridden && nextSibling._absoluteStartTime <= absoluteStartTime) {
-                prevSibling = nextSibling;
+              // Walk prior siblings up to the new tween, skipping overridden ones so the chain resolves to the latest live value instead of stopping at the first override.
+              while (nextSibling && nextSibling._absoluteStartTime <= absoluteStartTime) {
+                if (!nextSibling._isOverridden) prevSibling = nextSibling;
                 nextSibling = nextSibling._nextRep;
                 // Overrides all the next siblings if the next sibling starts at the same time of after as the new tween start time
                 if (nextSibling && nextSibling._absoluteStartTime >= absoluteStartTime) {
@@ -455,8 +469,8 @@ export class JSAnimation extends Timer {
                 if (prevTween) {
                   decomposeTweenValue(prevTween, fromTargetObject);
                 } else {
-                  decomposeRawValue(parent && prevSibling && prevSibling.parent.parent === parent ? prevSibling._value :
                   // No need to get and parse the original value if the tween is part of a timeline and has a previous sibling part of the same timeline
+                  decomposeRawValue(parent && prevSibling && prevSibling.parent.parent === parent ? prevSibling._value :
                   getOriginalAnimatableValue(target, propName, tweenType, inlineStylesStore), fromTargetObject);
                 }
               }
@@ -495,8 +509,7 @@ export class JSAnimation extends Timer {
                 const colorValue = fromTargetObject.t === valueTypes.COLOR ? fromTargetObject : toTargetObject;
                 const notColorValue = fromTargetObject.t === valueTypes.COLOR ? toTargetObject : fromTargetObject;
                 notColorValue.t = valueTypes.COLOR;
-                notColorValue.s = colorValue.s;
-                notColorValue.d = [0, 0, 0, 1];
+                notColorValue.d = colorValue.d.map(() => 0);
               }
             }
 
@@ -526,6 +539,16 @@ export class JSAnimation extends Timer {
             let inlineValue = inlineStylesStore[propName];
             if (!isNil(inlineValue)) inlineStylesStore[propName] = null;
 
+            // Resolve the adapter setter once so render skips the lookup per frame.
+            const tweenSetter = adapterProp ? adapterProp.set : null;
+
+            // Rounding is necessary here to minimize floating point errors when working in seconds
+            lastTweenChangeEndTime = round(tweenStartTime + tweenUpdateDuration, 12);
+
+            const fromD = fromTargetObject.d;
+            const toD = toTargetObject.d;
+            const toS = toTargetObject.s;
+
             /** @type {Tween} */
             const tween = {
               parent: this,
@@ -536,12 +559,12 @@ export class JSAnimation extends Timer {
               _toFunc: toFunctionStore.func,
               _fromFunc: fromFunctionStore.func,
               _ease: parseEase(tweenEasing),
-              _fromNumbers: cloneArray(fromTargetObject.d),
-              _toNumbers: cloneArray(toTargetObject.d),
-              _strings: cloneArray(toTargetObject.s),
+              _fromNumbers: fromD ? cloneArray(fromD) : emptyArray,
+              _toNumbers: toD ? cloneArray(toD) : emptyArray,
+              _strings: toS ? cloneArray(toS) : emptyArray,
               _fromNumber: fromTargetObject.n,
               _toNumber: toTargetObject.n,
-              _numbers: cloneArray(fromTargetObject.d), // For additive tween and animatables
+              _numbers: fromD ? cloneArray(fromD) : emptyArray, // For additive tween and animatables
               _number: fromTargetObject.n, // For additive tween and animatables
               _unit: toTargetObject.u,
               _modifier: tweenModifier,
@@ -551,8 +574,12 @@ export class JSAnimation extends Timer {
               _updateDuration: tweenUpdateDuration,
               _changeDuration: tweenUpdateDuration,
               _absoluteStartTime: absoluteStartTime,
+              _absoluteUpdateStartTime: absoluteUpdateStartTime,
+              _absoluteEndTime: round(absoluteOffsetTime + lastTweenChangeEndTime, 12),
+              _hasFromValue: hasFromvalue || isFromToArray ? 1 : 0,
               // NOTE: Investigate bit packing to stores ENUM / BOOL
               _tweenType: tweenType,
+              _setter: tweenSetter,
               _valueType: toTargetObject.t,
               _composition: tweenComposition,
               _isOverlapped: 0,
@@ -575,10 +602,11 @@ export class JSAnimation extends Timer {
             const vt = tween._valueType;
             if (vt === valueTypes.COMPLEX) {
               tween._value = composeComplexValue(tween, 1, -1);
-            } else if (vt === valueTypes.COLOR) {
-              tween._value = composeColorValue(tween, 1, -1);
             } else if (vt === valueTypes.UNIT) {
               tween._value = `${tweenModifier(tween._toNumber)}${tween._unit}`;
+            } else if (vt === valueTypes.COLOR) {
+              const d = toTargetObject.d;
+              tween._value = `rgba(${round(d[0], 0)},${round(d[1], 0)},${round(d[2], 0)},${d[3]})`;
             } else {
               tween._value = tweenModifier(tween._toNumber);
             }
@@ -586,8 +614,7 @@ export class JSAnimation extends Timer {
             if (isNaN(firstTweenChangeStartTime)) {
               firstTweenChangeStartTime = tween._startTime;
             }
-            // Rounding is necessary here to minimize floating point errors when working in seconds
-            lastTweenChangeEndTime = round(tweenStartTime + tweenUpdateDuration, 12);
+
             prevTween = tween;
             animationAnimationLength++;
 
@@ -693,8 +720,11 @@ export class JSAnimation extends Timer {
       tween._updateDuration = normalizeTime(tween._updateDuration * timeScale);
       tween._changeDuration = normalizeTime(tween._changeDuration * timeScale);
       tween._currentTime *= timeScale;
+      tween._delay *= timeScale;
       tween._startTime *= timeScale;
       tween._absoluteStartTime *= timeScale;
+      tween._absoluteUpdateStartTime *= timeScale;
+      tween._absoluteEndTime *= timeScale;
     });
     return super.stretch(newDuration);
   }

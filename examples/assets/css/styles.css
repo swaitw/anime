@@ -286,7 +286,9 @@ button {
 
 select:disabled,
 button:disabled {
-  background-color: var(--grey);
+  background-color: var(--bg-3);
+  color: var(--fg-4);
+  cursor: not-allowed;
 }
 
 select:not(:disabled):hover,

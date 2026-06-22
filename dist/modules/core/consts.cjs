@@ -1,6 +1,6 @@
 /**
  * Anime.js - core - CJS
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -73,6 +73,11 @@ const maxFps = 240;
 const emptyString = '';
 const cssVarPrefix = 'var(';
 
+// Arrays
+
+// Shared sentinel for tween slots that don't hold array data. Never mutated, only read; COMPLEX and COLOR tweens always replace the slot before writing.
+const emptyArray = [];
+
 const shortTransforms = /*#__PURE__*/ (() => {
   const map = new Map();
   map.set('x', 'translateX');
@@ -106,6 +111,13 @@ const transformsFragmentStrings = /*#__PURE__*/ validTransforms.reduce((a, v) =>
 /** @return {void} */
 const noop = () => {};
 
+/**
+ * @template T
+ * @param  {T} v
+ * @return {T}
+ */
+const noopModifier = v => v;
+
 // Regex
 
 const validRgbHslRgx = /\)\s*[-.\d]/;
@@ -128,6 +140,7 @@ exports.cssVarPrefix = cssVarPrefix;
 exports.cssVariableMatchRgx = cssVariableMatchRgx;
 exports.digitWithExponentRgx = digitWithExponentRgx;
 exports.doc = doc;
+exports.emptyArray = emptyArray;
 exports.emptyString = emptyString;
 exports.hexTestRgx = hexTestRgx;
 exports.hslExecRgx = hslExecRgx;
@@ -141,6 +154,7 @@ exports.maxFps = maxFps;
 exports.maxValue = maxValue;
 exports.minValue = minValue;
 exports.noop = noop;
+exports.noopModifier = noopModifier;
 exports.proxyTargetSymbol = proxyTargetSymbol;
 exports.relativeValuesExecRgx = relativeValuesExecRgx;
 exports.rgbExecRgx = rgbExecRgx;

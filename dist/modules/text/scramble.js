@@ -1,6 +1,6 @@
 /**
  * Anime.js - text - ESM
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -17,6 +17,16 @@ import { noop } from '../core/consts.js';
  *   FunctionValue,
  * } from '../types/index.js'
 */
+
+/**
+ * @typedef {Object} ScrambleTextTween
+ * @property {Number} from
+ * @property {Number} to
+ * @property {Number} duration
+ * @property {Number} delay
+ * @property {String} ease
+ * @property {(v: Number) => String} modifier
+ */
 
 /**
  * '-' is the range operator; place it at the start or end of the string to use it as a literal (e.g. '-abc' or 'abc-')
@@ -55,7 +65,7 @@ const originalTexts = new WeakMap();
  * progressively revealing the original text.
  *
  * @param {ScrambleTextParams} [params]
- * @return {FunctionValue}
+ * @return {FunctionValue<ScrambleTextTween>}
  */
 const scrambleText = (params = {}) => {
   if (!params) params = {};

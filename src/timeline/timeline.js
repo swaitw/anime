@@ -71,6 +71,7 @@ import {
  *   TimelinePosition,
  *   StaggerFunction,
  *   TargetsArray,
+ *   TweakRegister,
  * } from '../types/index.js'
 */
 
@@ -79,8 +80,6 @@ import {
  *   WAAPIAnimation,
  * } from '../waapi/waapi.js'
 */
-
-/** @import {TweakRegister} from 'tweaks' */
 
 /**
  * @param {Timeline} tl
@@ -274,13 +273,21 @@ export class Timeline extends Timer {
     if (!isUnd(synced) && !isUnd(/** @type {WAAPIAnimation} */(synced).persist)) {
       /** @type {WAAPIAnimation} */(synced).persist = true;
     }
-    return this.add(synced, { currentTime: [0, duration], duration, delay: 0, ease: 'linear', playbackEase: 'linear' }, position);
+    const editor = globals.editor;
+    const childHook = editor && editor.addTimelineChild;
+    if (editor && editor.addTimelineSync) {
+      position = editor.addTimelineSync(synced, position, this.id);
+      editor.addTimelineChild = null; // Suppress the per-child hook for the internal .add, sync already registered.
+    }
+    const result = this.add(synced, { currentTime: [0, duration], duration, delay: 0, ease: 'linear', playbackEase: 'linear' }, position);
+    if (editor) editor.addTimelineChild = childHook;
+    return result;
   }
 
   /**
    * @param  {TargetsParam} targets
    * @param  {AnimationParams} parameters
-   * @param  {TimelinePosition} [position]
+   * @param  {TimelinePosition|StaggerFunction<Number|String>|TweakRegister} [position]
    * @return {this}
    */
   set(targets, parameters, position) {
@@ -297,6 +304,7 @@ export class Timeline extends Timer {
    */
   call(callback, position) {
     if (isUnd(callback) || callback && !isFnc(callback)) return this;
+    if (globals.editor && globals.editor.addTimelineCall) position = globals.editor.addTimelineCall(callback, position, this.id);
     return this.add({ duration: 0, delay: 0, onComplete: () => callback(this) }, position);
   }
 
@@ -308,6 +316,7 @@ export class Timeline extends Timer {
    */
   label(labelName, position) {
     if (isUnd(labelName) || labelName && !isStr(labelName)) return this;
+    if (globals.editor && globals.editor.addTimelineLabel) position = globals.editor.addTimelineLabel(labelName, position, this.id);
     this.labels[labelName] = parseTimelinePosition(this, position);
     return this;
   }

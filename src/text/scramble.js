@@ -27,6 +27,16 @@ import {
 */
 
 /**
+ * @typedef {Object} ScrambleTextTween
+ * @property {Number} from
+ * @property {Number} to
+ * @property {Number} duration
+ * @property {Number} delay
+ * @property {String} ease
+ * @property {(v: Number) => String} modifier
+ */
+
+/**
  * '-' is the range operator; place it at the start or end of the string to use it as a literal (e.g. '-abc' or 'abc-')
  * @param {String} str
  * @return {String}
@@ -63,7 +73,7 @@ const originalTexts = new WeakMap();
  * progressively revealing the original text.
  *
  * @param {ScrambleTextParams} [params]
- * @return {FunctionValue}
+ * @return {FunctionValue<ScrambleTextTween>}
  */
 export const scrambleText = (params = {}) => {
   if (!params) params = {};

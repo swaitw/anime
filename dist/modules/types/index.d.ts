@@ -27,17 +27,36 @@ export type Renderable = JSAnimation | Timeline;
 export type Tickable = Timer | Renderable;
 export type CallbackArgument = Timer & JSAnimation & Timeline;
 export type Revertible = Animatable | Tickable | WAAPIAnimation | Draggable | ScrollObserver | TextSplitter | Scope | AutoLayout;
+export type TweakRegister = {
+    type: string;
+    defaultValue: any;
+};
 export type StaggerFunction<T> = (target?: Target, index?: number, targets?: TargetsArray, prevTween?: Tween | null, tl?: Timeline) => T;
 export type StaggerParams = {
     start?: number | string;
     from?: number | "first" | "center" | "last" | "random" | Array<number>;
     reversed?: boolean;
     grid?: Array<number> | boolean;
-    axis?: ("x" | "y");
-    use?: string | ((target: Target, i: number, length: number) => number);
+    axis?: ("x" | "y" | "z");
+    use?: string | {
+        method(target: Target, i: number, length: number): number;
+    }["method"];
     total?: number;
     ease?: EasingParam;
     modifier?: TweenModifier;
+    /**
+     * Additive uniform noise on the
+     * computed stagger value. Number form gives flat `+/-jitter`; tuple form
+     * ramps the magnitude `start -> end` across the from/axis/grid ordering
+     * and respects `ease`.
+     */
+    jitter?: number | [number, number];
+    /**
+     * Seed for jitter draws and `from: 'random'`
+     * shuffling. `false` (default) uses Math.random. `true` seeds with `0`. A
+     * number is used directly as the seed.
+     */
+    seed?: boolean | number;
 };
 export type DOMTarget = HTMLElement | SVGElement;
 export type JSTarget = Record<string, any>;
@@ -89,7 +108,9 @@ export type SpringParams = {
      */
     onComplete?: Callback<JSAnimation>;
 };
-export type Callback<T> = (self: T, e?: PointerEvent) => any;
+export type Callback<T> = {
+    method(self: T): any;
+}["method"];
 export type TickableCallbacks<T extends unknown> = {
     onBegin?: Callback<T>;
     onBeforeUpdate?: Callback<T>;
@@ -115,7 +136,8 @@ export type TimerOptions = {
     priority?: number;
 };
 export type TimerParams = TimerOptions & TickableCallbacks<Timer>;
-export type FunctionValue = (target?: Target, index?: number, targets?: TargetsArray, prevTween?: Tween | null) => number | string | TweenObjectValue | EasingParam | Array<number | string | TweenObjectValue>;
+export type FunctionValueReturn = number | string | TweenKeyValue | EasingParam | Array<number | string | TweenKeyValue>;
+export type FunctionValue<T = FunctionValueReturn> = (target?: Target, index?: number, targets?: TargetsArray, prevTween?: Tween | null) => T;
 export type TweenModifier = (value: number) => number | string;
 export type ColorArray = [number, number, number, number];
 export type Tween = {
@@ -123,7 +145,7 @@ export type Tween = {
     parent: JSAnimation;
     property: string;
     target: Target;
-    _value: string | number;
+    _value: string | number | any;
     _toFunc: Function | null;
     _fromFunc: Function | null;
     _ease: EasingFunction;
@@ -142,7 +164,11 @@ export type Tween = {
     _startTime: number;
     _changeDuration: number;
     _absoluteStartTime: number;
+    _absoluteUpdateStartTime: number;
+    _absoluteEndTime: number;
+    _hasFromValue: number;
     _tweenType: tweenTypes;
+    _setter: ((target: any, value: number, tween: Tween) => void) | null;
     _valueType: valueTypes;
     _composition: number;
     _isOverlapped: number;
@@ -174,11 +200,11 @@ export type TweenDecomposedValue = {
      */
     o: string;
     /**
-     * - Array of Numbers (in case of complex value type)
+     * - Array of Numbers (complex / color value type)
      */
     d: Array<number>;
     /**
-     * - Strings (in case of complex value type)
+     * - Strings (complex value type)
      */
     s: Array<string>;
 };
@@ -189,7 +215,7 @@ export type TweenPropertySiblings = {
 export type TweenLookups = Record<string, TweenPropertySiblings>;
 export type TweenReplaceLookups = WeakMap<Target, TweenLookups>;
 export type TweenAdditiveLookups = Map<Target, TweenLookups>;
-export type TweenParamValue = number | string | FunctionValue | EasingParam;
+export type TweenParamValue = number | string | FunctionValue | EasingParam | TweakRegister;
 export type TweenPropValue = TweenParamValue | [TweenParamValue, TweenParamValue];
 export type TweenComposition = (string & {}) | "none" | "replace" | "blend" | compositionTypes;
 export type TweenParamsOptions = {
@@ -290,7 +316,7 @@ export type AnimatablePropertyParamsOptions = {
     modifier?: TweenModifier;
     composition?: TweenComposition;
 };
-export type AnimatableParams = Record<string, TweenParamValue | EasingParam | TweenModifier | TweenComposition | AnimatablePropertyParamsOptions> & AnimatablePropertyParamsOptions;
+export type AnimatableParams = Record<string, TweenParamValue | EasingParam | TweenModifier | TweenComposition | AnimatablePropertyParamsOptions | Callback<JSAnimation>> & AnimatablePropertyParamsOptions & TickableCallbacks<JSAnimation> & RenderableCallbacks<JSAnimation>;
 export type ReactRef = {
     current?: HTMLElement | SVGElement | null;
 };
@@ -305,7 +331,7 @@ export type ScopeParams = {
 export type ScopedCallback<T> = (scope: Scope) => T;
 export type ScopeCleanupCallback = (scope?: Scope) => any;
 export type ScopeConstructorCallback = (scope?: Scope) => ScopeCleanupCallback | void;
-export type ScopeMethod = (...args: any[]) => ScopeCleanupCallback | void;
+export type ScopeMethod = (...args: any[]) => any;
 export type ScrollThresholdValue = string | number;
 export type ScrollThresholdParam = {
     target?: ScrollThresholdValue;
@@ -475,6 +501,5 @@ import type { TextSplitter } from '../text/split.js';
 import type { Scope } from '../scope/scope.js';
 import type { AutoLayout } from '../layout/layout.js';
 import type { Spring } from '../easings/spring/index.js';
-import type { TweakRegister } from 'tweaks';
 import type { tweenTypes } from '../core/consts.js';
 import type { valueTypes } from '../core/consts.js';

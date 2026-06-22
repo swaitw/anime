@@ -1,6 +1,6 @@
 /**
  * Anime.js - timeline - CJS
- * @version v4.4.1
+ * @version v4.5.0
  * @license MIT
  * @copyright 2026 - Julian Garnier
  */
@@ -34,6 +34,7 @@ var position = require('./position.cjs');
  *   TimelinePosition,
  *   StaggerFunction,
  *   TargetsArray,
+ *   TweakRegister,
  * } from '../types/index.js'
 */
 
@@ -42,8 +43,6 @@ var position = require('./position.cjs');
  *   WAAPIAnimation,
  * } from '../waapi/waapi.js'
 */
-
-/** @import {TweakRegister} from 'tweaks' */
 
 /**
  * @param {Timeline} tl
@@ -237,13 +236,21 @@ class Timeline extends timer.Timer {
     if (!helpers.isUnd(synced) && !helpers.isUnd(/** @type {WAAPIAnimation} */(synced).persist)) {
       /** @type {WAAPIAnimation} */(synced).persist = true;
     }
-    return this.add(synced, { currentTime: [0, duration], duration, delay: 0, ease: 'linear', playbackEase: 'linear' }, position);
+    const editor = globals.globals.editor;
+    const childHook = editor && editor.addTimelineChild;
+    if (editor && editor.addTimelineSync) {
+      position = editor.addTimelineSync(synced, position, this.id);
+      editor.addTimelineChild = null; // Suppress the per-child hook for the internal .add, sync already registered.
+    }
+    const result = this.add(synced, { currentTime: [0, duration], duration, delay: 0, ease: 'linear', playbackEase: 'linear' }, position);
+    if (editor) editor.addTimelineChild = childHook;
+    return result;
   }
 
   /**
    * @param  {TargetsParam} targets
    * @param  {AnimationParams} parameters
-   * @param  {TimelinePosition} [position]
+   * @param  {TimelinePosition|StaggerFunction<Number|String>|TweakRegister} [position]
    * @return {this}
    */
   set(targets, parameters, position) {
@@ -260,6 +267,7 @@ class Timeline extends timer.Timer {
    */
   call(callback, position) {
     if (helpers.isUnd(callback) || callback && !helpers.isFnc(callback)) return this;
+    if (globals.globals.editor && globals.globals.editor.addTimelineCall) position = globals.globals.editor.addTimelineCall(callback, position, this.id);
     return this.add({ duration: 0, delay: 0, onComplete: () => callback(this) }, position);
   }
 
@@ -271,6 +279,7 @@ class Timeline extends timer.Timer {
    */
   label(labelName, position$1) {
     if (helpers.isUnd(labelName) || labelName && !helpers.isStr(labelName)) return this;
+    if (globals.globals.editor && globals.globals.editor.addTimelineLabel) position$1 = globals.globals.editor.addTimelineLabel(labelName, position$1, this.id);
     this.labels[labelName] = position.parseTimelinePosition(this, position$1);
     return this;
   }

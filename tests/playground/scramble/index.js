@@ -1,5 +1,13 @@
 import { animate, createTimeline, scrambleText, stagger } from '../../../dist/modules/index.js';
 
+/**
+ * @import {
+ *   ScrambleTextParams,
+ *   AnimationParams,
+ * } from '../../../dist/modules/index.js'
+ */
+
+/** @type {Array<{ id: String, params: ScrambleTextParams|null, animParams?: AnimationParams }>} */
 const demos = [
   { id: 'default', params: null },
   { id: 'from-end', params: { from: 'right' } },

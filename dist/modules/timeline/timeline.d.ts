@@ -109,10 +109,10 @@ export class Timeline extends Timer {
     /**
      * @param  {TargetsParam} targets
      * @param  {AnimationParams} parameters
-     * @param  {TimelinePosition} [position]
+     * @param  {TimelinePosition|StaggerFunction<Number|String>|TweakRegister} [position]
      * @return {this}
      */
-    set(targets: TargetsParam, parameters: AnimationParams, position?: TimelinePosition): this;
+    set(targets: TargetsParam, parameters: AnimationParams, position?: TimelinePosition | StaggerFunction<number | string> | TweakRegister): this;
     /**
      * @param {Callback<Timer>} callback
      * @param {TimelinePosition} [position]
@@ -164,7 +164,7 @@ import type { TargetsParam } from '../types/index.js';
 import type { AnimationParams } from '../types/index.js';
 import type { TimelinePosition } from '../types/index.js';
 import type { StaggerFunction } from '../types/index.js';
-import type { TweakRegister } from 'tweaks';
+import type { TweakRegister } from '../types/index.js';
 import type { TimerParams } from '../types/index.js';
 import type { Tickable } from '../types/index.js';
 import type { WAAPIAnimation } from '../waapi/waapi.js';

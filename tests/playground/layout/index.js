@@ -281,7 +281,7 @@ const tests = [
       delay: stagger(200),
       onBegin: () => {
         utils.set($container, {
-          background: 'var(--sky-2)',
+          background: 'var(--cyan-2)',
         })
       },
       onComplete: () => {

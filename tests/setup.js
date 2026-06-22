@@ -1,4 +1,5 @@
 import '../node_modules/mocha/mocha.js';
+import { engine } from '../dist/modules/index.js';
 
 export const testObject = {};
 export const anOtherTestObject = {};
@@ -13,6 +14,8 @@ mocha.setup({
   globals: ['___browserSync___'],
   rootHooks: {
     beforeEach(done) {
+      // Pin engine offset to 0 so timeline construction has deterministic FP precision across tests.
+      engine._startTime = engine._lastTickTime;
       testObject.plainValue = 10;
       testObject.valueWithUnit = '10px';
       testObject.multiplePLainValues = '16 32 64 128';

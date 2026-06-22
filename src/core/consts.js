@@ -64,6 +64,11 @@ export const maxFps = 240;
 export const emptyString = '';
 export const cssVarPrefix = 'var(';
 
+// Arrays
+
+// Shared sentinel for tween slots that don't hold array data. Never mutated, only read; COMPLEX and COLOR tweens always replace the slot before writing.
+export const emptyArray = [];
+
 export const shortTransforms = /*#__PURE__*/ (() => {
   const map = new Map();
   map.set('x', 'translateX');
@@ -96,6 +101,13 @@ export const transformsFragmentStrings = /*#__PURE__*/ validTransforms.reduce((a
 
 /** @return {void} */
 export const noop = () => {};
+
+/**
+ * @template T
+ * @param  {T} v
+ * @return {T}
+ */
+export const noopModifier = v => v;
 
 // Regex
 
